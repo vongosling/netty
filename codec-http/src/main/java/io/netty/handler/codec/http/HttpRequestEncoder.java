@@ -15,31 +15,43 @@
  */
 package io.netty.handler.codec.http;
 
-import static io.netty.handler.codec.http.HttpConstants.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.CharsetUtil;
 
+import static io.netty.handler.codec.http.HttpConstants.*;
+
 /**
- * Encodes an {@link HttpRequest} or an {@link HttpChunk} into
+ * Encodes an {@link HttpRequest} or an {@link HttpContent} into
  * a {@link ByteBuf}.
  */
-public class HttpRequestEncoder extends HttpMessageEncoder {
+public class HttpRequestEncoder extends HttpObjectEncoder<HttpRequest> {
+    private static final char SLASH = '/';
+    private static final byte[] CRLF = { CR, LF };
 
-    /**
-     * Creates a new instance.
-     */
-    public HttpRequestEncoder() {
+    @Override
+    public boolean acceptOutboundMessage(Object msg) throws Exception {
+        return super.acceptOutboundMessage(msg) && !(msg instanceof HttpResponse);
     }
 
     @Override
-    protected void encodeInitialLine(ByteBuf buf, HttpMessage message) throws Exception {
-        HttpRequest request = (HttpRequest) message;
-        buf.writeBytes(request.getMethod().toString().getBytes(CharsetUtil.US_ASCII));
+    protected void encodeInitialLine(ByteBuf buf, HttpRequest request) throws Exception {
+        encodeAscii(request.getMethod().toString(), buf);
         buf.writeByte(SP);
-        buf.writeBytes(request.getUri().getBytes(CharsetUtil.UTF_8));
+
+        // Add / as absolute path if no is present.
+        // See http://tools.ietf.org/html/rfc2616#section-5.1.2
+        String uri = request.getUri();
+        int start = uri.indexOf("://");
+        if (start != -1) {
+            int startIndex = start + 3;
+            if (uri.lastIndexOf(SLASH) <= startIndex) {
+                uri += SLASH;
+            }
+        }
+        buf.writeBytes(uri.getBytes(CharsetUtil.UTF_8));
+
         buf.writeByte(SP);
-        buf.writeBytes(request.getProtocolVersion().toString().getBytes(CharsetUtil.US_ASCII));
-        buf.writeByte(CR);
-        buf.writeByte(LF);
+        encodeAscii(request.getProtocolVersion().toString(), buf);
+        buf.writeBytes(CRLF);
     }
 }

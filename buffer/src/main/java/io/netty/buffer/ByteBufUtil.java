@@ -26,6 +26,9 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 
+/**
+ * A collection of utility methods that is related with handling {@link ByteBuf}.
+ */
 public final class ByteBufUtil {
 
     private static final char[] HEXDUMP_TABLE = new char[256 * 4];
@@ -33,8 +36,8 @@ public final class ByteBufUtil {
     static {
         final char[] DIGITS = "0123456789abcdef".toCharArray();
         for (int i = 0; i < 256; i ++) {
-            HEXDUMP_TABLE[(i << 1) + 0] = DIGITS[i >>> 4 & 0x0F];
-            HEXDUMP_TABLE[(i << 1) + 1] = DIGITS[i >>> 0 & 0x0F];
+            HEXDUMP_TABLE[ i << 1     ] = DIGITS[i >>> 4 & 0x0F];
+            HEXDUMP_TABLE[(i << 1) + 1] = DIGITS[i       & 0x0F];
         }
     }
 
@@ -172,7 +175,8 @@ public final class ByteBufUtil {
                 long vb = bufferB.getUnsignedInt(bIndex);
                 if (va > vb) {
                     return 1;
-                } else if (va < vb) {
+                }
+                if (va < vb) {
                     return -1;
                 }
                 aIndex += 4;
@@ -184,7 +188,8 @@ public final class ByteBufUtil {
                 long vb = swapInt(bufferB.getInt(bIndex)) & 0xFFFFFFFFL;
                 if (va > vb) {
                     return 1;
-                } else if (va < vb) {
+                }
+                if (va < vb) {
                     return -1;
                 }
                 aIndex += 4;
@@ -197,7 +202,8 @@ public final class ByteBufUtil {
             short vb = bufferB.getUnsignedByte(bIndex);
             if (va > vb) {
                 return 1;
-            } else if (va < vb) {
+            }
+            if (va < vb) {
                 return -1;
             }
             aIndex ++;
@@ -220,22 +226,10 @@ public final class ByteBufUtil {
     }
 
     /**
-     * The default implementation of {@link ByteBuf#indexOf(int, int, ByteBufIndexFinder)}.
-     * This method is useful when implementing a new buffer type.
-     */
-    public static int indexOf(ByteBuf buffer, int fromIndex, int toIndex, ByteBufIndexFinder indexFinder) {
-        if (fromIndex <= toIndex) {
-            return firstIndexOf(buffer, fromIndex, toIndex, indexFinder);
-        } else {
-            return lastIndexOf(buffer, fromIndex, toIndex, indexFinder);
-        }
-    }
-
-    /**
      * Toggles the endianness of the specified 16-bit short integer.
      */
     public static short swapShort(short value) {
-        return (short) (value << 8 | value >>> 8 & 0xff);
+        return Short.reverseBytes(value);
     }
 
     /**
@@ -253,16 +247,14 @@ public final class ByteBufUtil {
      * Toggles the endianness of the specified 32-bit integer.
      */
     public static int swapInt(int value) {
-        return swapShort((short) value) <<  16 |
-               swapShort((short) (value >>> 16)) & 0xffff;
+        return Integer.reverseBytes(value);
     }
 
     /**
      * Toggles the endianness of the specified 64-bit long integer.
      */
     public static long swapLong(long value) {
-        return (long) swapInt((int) value) <<  32 |
-                      swapInt((int) (value >>> 32)) & 0xffffffffL;
+        return Long.reverseBytes(value);
     }
 
     private static int firstIndexOf(ByteBuf buffer, int fromIndex, int toIndex, byte value) {
@@ -288,38 +280,6 @@ public final class ByteBufUtil {
 
         for (int i = fromIndex - 1; i >= toIndex; i --) {
             if (buffer.getByte(i) == value) {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    private static int firstIndexOf(
-            ByteBuf buffer, int fromIndex, int toIndex, ByteBufIndexFinder indexFinder) {
-        fromIndex = Math.max(fromIndex, 0);
-        if (fromIndex >= toIndex || buffer.capacity() == 0) {
-            return -1;
-        }
-
-        for (int i = fromIndex; i < toIndex; i ++) {
-            if (indexFinder.find(buffer, i)) {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    private static int lastIndexOf(
-            ByteBuf buffer, int fromIndex, int toIndex, ByteBufIndexFinder indexFinder) {
-        fromIndex = Math.min(fromIndex, buffer.capacity());
-        if (fromIndex < 0 || buffer.capacity() == 0) {
-            return -1;
-        }
-
-        for (int i = fromIndex - 1; i >= toIndex; i --) {
-            if (indexFinder.find(buffer, i)) {
                 return i;
             }
         }

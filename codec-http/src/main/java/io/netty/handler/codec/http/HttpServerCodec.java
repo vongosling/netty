@@ -15,18 +15,17 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.channel.CombinedChannelHandler;
+import io.netty.channel.CombinedChannelDuplexHandler;
 
 
 /**
  * A combination of {@link HttpRequestDecoder} and {@link HttpResponseEncoder}
  * which enables easier server side HTTP implementation.
- * @see HttpClientCodec
  *
- * @apiviz.has io.netty.handler.codec.http.HttpRequestDecoder
- * @apiviz.has io.netty.handler.codec.http.HttpResponseEncoder
+ * @see HttpClientCodec
  */
-public class HttpServerCodec extends CombinedChannelHandler {
+public final class HttpServerCodec
+        extends CombinedChannelDuplexHandler<HttpRequestDecoder, HttpResponseEncoder> {
 
     /**
      * Creates a new instance with the default decoder options
@@ -40,10 +39,7 @@ public class HttpServerCodec extends CombinedChannelHandler {
     /**
      * Creates a new instance with the specified decoder options.
      */
-    public HttpServerCodec(
-            int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
-        super(
-                new HttpRequestDecoder(maxInitialLineLength, maxHeaderSize, maxChunkSize),
-                new HttpResponseEncoder());
+    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
+        super(new HttpRequestDecoder(maxInitialLineLength, maxHeaderSize, maxChunkSize), new HttpResponseEncoder());
     }
 }

@@ -15,6 +15,7 @@
  */
 package io.netty.channel;
 
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.socket.SocketChannelConfig;
 
 import java.nio.ByteBuffer;
@@ -45,18 +46,19 @@ import java.util.Map;
  * <tr>
  * <th>Name</th><th>Associated setter method</th>
  * </tr><tr>
- * <td>{@code "connectTimeoutMillis"}</td><td>{@link #setConnectTimeoutMillis(int)}</td>
+ * <td>{@link ChannelOption#CONNECT_TIMEOUT_MILLIS}</td><td>{@link #setConnectTimeoutMillis(int)}</td>
+ * </tr><tr>
+ * <td>{@link ChannelOption#WRITE_SPIN_COUNT}</td><td>{@link #setWriteSpinCount(int)}</td>
+ * </tr><tr>
+ * <td>{@link ChannelOption#ALLOCATOR}</td><td>{@link #setAllocator(ByteBufAllocator)}</td>
+ * </tr><tr>
+ * <td>{@link ChannelOption#AUTO_READ}</td><td>{@link #setAutoRead(boolean)}</td>
  * </tr>
  * </table>
  * <p>
  * More options are available in the sub-types of {@link ChannelConfig}.  For
  * example, you can configure the parameters which are specific to a TCP/IP
  * socket as explained in {@link SocketChannelConfig}.
- *
- * @apiviz.has io.netty.channel.ChannelPipelineFactory
- * @apiviz.composedOf io.netty.channel.ReceiveBufferSizePredictor
- *
- * @apiviz.excludeSubtypes
  */
 public interface ChannelConfig {
 
@@ -79,12 +81,12 @@ public interface ChannelConfig {
      * Sets a configuration property with the specified name and value.
      * To override this method properly, you must call the super class:
      * <pre>
-     * public boolean setOption(String name, Object value) {
-     *     if (super.setOption(name, value)) {
+     * public boolean setOption(ChannelOption&lt;T&gt; option, T value) {
+     *     if (super.setOption(option, value)) {
      *         return true;
      *     }
      *
-     *     if (name.equals("additionalOption")) {
+     *     if (option.equals(additionalOption)) {
      *         ....
      *         return true;
      *     }
@@ -114,7 +116,20 @@ public interface ChannelConfig {
      * @param connectTimeoutMillis the connect timeout in milliseconds.
      *                             {@code 0} to disable.
      */
-    void setConnectTimeoutMillis(int connectTimeoutMillis);
+    ChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis);
+
+    /**
+     * Returns the maximum number of messages to read per read loop.
+     * a {@link ChannelInboundHandler#channelRead(ChannelHandlerContext, Object) channelRead()} event.
+     * If this value is greater than 1, an event loop might attempt to read multiple times to procure multiple messages.
+     */
+    int getMaxMessagesPerRead();
+
+    /**
+     * Sets the maximum number of messages to read per read loop.
+     * If this value is greater than 1, an event loop might attempt to read multiple times to procure multiple messages.
+     */
+    ChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead);
 
     /**
      * Returns the maximum loop count for a write operation until
@@ -135,5 +150,85 @@ public interface ChannelConfig {
      * @throws IllegalArgumentException
      *         if the specified value is {@code 0} or less than {@code 0}
      */
-    void setWriteSpinCount(int writeSpinCount);
+    ChannelConfig setWriteSpinCount(int writeSpinCount);
+
+    /**
+     * Returns {@link ByteBufAllocator} which is used for the channel
+     * to allocate buffers.
+     */
+    ByteBufAllocator getAllocator();
+
+    /**
+     * Set the {@link ByteBufAllocator} which is used for the channel
+     * to allocate buffers.
+     */
+    ChannelConfig setAllocator(ByteBufAllocator allocator);
+
+    /**
+     * Returns {@link RecvByteBufAllocator} which is used for the channel
+     * to allocate receive buffers.
+     */
+    RecvByteBufAllocator getRecvByteBufAllocator();
+
+    /**
+     * Set the {@link ByteBufAllocator} which is used for the channel
+     * to allocate receive buffers.
+     */
+    ChannelConfig setRecvByteBufAllocator(RecvByteBufAllocator allocator);
+
+    /**
+     * Returns {@code true} if and only if {@link ChannelHandlerContext#read()} will be invoked automatically so that
+     * a user application doesn't need to call it at all. The default value is {@code true}.
+     */
+    boolean isAutoRead();
+
+    /**
+     * Sets if {@link ChannelHandlerContext#read()} will be invoked automatically so that a user application doesn't
+     * need to call it at all. The default value is {@code true}.
+     */
+    ChannelConfig setAutoRead(boolean autoRead);
+
+    /**
+     * Returns the high water mark of the write buffer.  If the number of bytes
+     * queued in the write buffer exceeds this value, {@link Channel#isWritable()}
+     * will start to return {@code false}.
+     */
+    int getWriteBufferHighWaterMark();
+
+    /**
+     * Sets the high water mark of the write buffer.  If the number of bytes
+     * queued in the write buffer exceeds this value, {@link Channel#isWritable()}
+     * will start to return {@code false}.
+     */
+    ChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark);
+
+    /**
+     * Returns the low water mark of the write buffer.  Once the number of bytes
+     * queued in the write buffer exceeded the
+     * {@linkplain #setWriteBufferHighWaterMark(int) high water mark} and then
+     * dropped down below this value, {@link Channel#isWritable()} will start to return
+     * {@code true} again.
+     */
+    int getWriteBufferLowWaterMark();
+
+    /**
+     * Sets the low water mark of the write buffer.  Once the number of bytes
+     * queued in the write buffer exceeded the
+     * {@linkplain #setWriteBufferHighWaterMark(int) high water mark} and then
+     * dropped down below this value, {@link Channel#isWritable()} will start to return
+     * {@code true} again.
+     */
+    ChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
+
+    /**
+     * Returns {@link MessageSizeEstimator} which is used for the channel
+     * to detect the size of a message.
+     */
+    MessageSizeEstimator getMessageSizeEstimator();
+
+    /**
+     * Set the {@link ByteBufAllocator} which is used for the channel
+     * to detect the size of a message.
+     */
+    ChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
 }

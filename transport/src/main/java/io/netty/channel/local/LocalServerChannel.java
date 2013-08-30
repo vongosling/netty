@@ -17,37 +17,34 @@ package io.netty.channel.local;
 
 import io.netty.channel.AbstractServerChannel;
 import io.netty.channel.ChannelConfig;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.DefaultChannelConfig;
 import io.netty.channel.EventLoop;
 import io.netty.channel.ServerChannel;
-import io.netty.channel.SingleThreadEventExecutor;
 import io.netty.channel.SingleThreadEventLoop;
+import io.netty.util.concurrent.SingleThreadEventExecutor;
 
 import java.net.SocketAddress;
+import java.util.ArrayDeque;
+import java.util.Queue;
 
 /**
- * A {@link ServerChannel} for the local transport.
+ * A {@link ServerChannel} for the local transport which allows in VM communication.
  */
 public class LocalServerChannel extends AbstractServerChannel {
 
-    private final ChannelConfig config = new DefaultChannelConfig();
+    private final ChannelConfig config = new DefaultChannelConfig(this);
+    private final Queue<Object> inboundBuffer = new ArrayDeque<Object>();
     private final Runnable shutdownHook = new Runnable() {
         @Override
         public void run() {
-            unsafe().close(unsafe().voidFuture());
+            unsafe().close(unsafe().voidPromise());
         }
     };
 
     private volatile int state; // 0 - open, 1 - active, 2 - closed
     private volatile LocalAddress localAddress;
-
-    public LocalServerChannel() {
-        this(null);
-    }
-
-    public LocalServerChannel(Integer id) {
-        super(id);
-    }
+    private volatile boolean acceptInProgress;
 
     @Override
     public ChannelConfig config() {
@@ -85,9 +82,8 @@ public class LocalServerChannel extends AbstractServerChannel {
     }
 
     @Override
-    protected Runnable doRegister() throws Exception {
+    protected void doRegister() throws Exception {
         ((SingleThreadEventExecutor) eventLoop()).addShutdownHook(shutdownHook);
-        return null;
     }
 
     @Override
@@ -97,21 +93,13 @@ public class LocalServerChannel extends AbstractServerChannel {
     }
 
     @Override
-    protected void doPreClose() throws Exception {
-        if (state > 1) {
-            // Closed already.
-            return;
-        }
-
-        // Update all internal state before the closeFuture is notified.
-        LocalChannelRegistry.unregister(localAddress);
-        localAddress = null;
-        state = 2;
-    }
-
-    @Override
     protected void doClose() throws Exception {
-        // All internal state was updated already at doPreClose().
+        if (state <= 1) {
+            // Update all internal state before the closeFuture is notified.
+            LocalChannelRegistry.unregister(localAddress);
+            localAddress = null;
+            state = 2;
+        }
     }
 
     @Override
@@ -119,41 +107,57 @@ public class LocalServerChannel extends AbstractServerChannel {
         ((SingleThreadEventExecutor) eventLoop()).removeShutdownHook(shutdownHook);
     }
 
+    @Override
+    protected void doBeginRead() throws Exception {
+        if (acceptInProgress) {
+            return;
+        }
+
+        Queue<Object> inboundBuffer = this.inboundBuffer;
+        if (inboundBuffer.isEmpty()) {
+            acceptInProgress = true;
+            return;
+        }
+
+        ChannelPipeline pipeline = pipeline();
+        for (;;) {
+            Object m = inboundBuffer.poll();
+            if (m == null) {
+                break;
+            }
+            pipeline.fireChannelRead(m);
+        }
+        pipeline.fireChannelReadComplete();
+    }
+
     LocalChannel serve(final LocalChannel peer) {
-        LocalChannel child = new LocalChannel(this, peer);
-        serve0(child);
+        final LocalChannel child = new LocalChannel(this, peer);
+        if (eventLoop().inEventLoop()) {
+            serve0(child);
+        } else {
+            eventLoop().execute(new Runnable() {
+              @Override
+              public void run() {
+                serve0(child);
+              }
+            });
+        }
         return child;
     }
 
     private void serve0(final LocalChannel child) {
-        if (eventLoop().inEventLoop()) {
-            pipeline().inboundMessageBuffer().add(child);
-            pipeline().fireInboundBufferUpdated();
-        } else {
-            eventLoop().execute(new Runnable() {
-                @Override
-                public void run() {
-                    serve0(child);
+        inboundBuffer.add(child);
+        if (acceptInProgress) {
+            acceptInProgress = false;
+            ChannelPipeline pipeline = pipeline();
+            for (;;) {
+                Object m = inboundBuffer.poll();
+                if (m == null) {
+                    break;
                 }
-            });
-        }
-    }
-
-    @Override
-    protected Unsafe newUnsafe() {
-        return new LocalServerUnsafe();
-    }
-
-    private final class LocalServerUnsafe extends AbstractServerUnsafe {
-
-        @Override
-        public void suspendRead() {
-            // TODO: Implement me
-        }
-
-        @Override
-        public void resumeRead() {
-            // TODO: Implement me
+                pipeline.fireChannelRead(m);
+            }
+            pipeline.fireChannelReadComplete();
         }
     }
 }

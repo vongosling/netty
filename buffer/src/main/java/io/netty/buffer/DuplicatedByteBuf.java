@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 
@@ -28,13 +29,12 @@ import java.nio.channels.ScatteringByteChannel;
  * parent.  It is recommended to use {@link ByteBuf#duplicate()} instead
  * of calling the constructor explicitly.
  */
-public class DuplicatedByteBuf extends AbstractByteBuf implements WrappedByteBuf {
+public class DuplicatedByteBuf extends AbstractDerivedByteBuf {
 
-    private final Unsafe unsafe = new DuplicatedUnsafe();
-    final ByteBuf buffer;
+    private final ByteBuf buffer;
 
     public DuplicatedByteBuf(ByteBuf buffer) {
-        super(buffer.order(), buffer.maxCapacity());
+        super(buffer.maxCapacity());
 
         if (buffer instanceof DuplicatedByteBuf) {
             this.buffer = ((DuplicatedByteBuf) buffer).buffer;
@@ -43,13 +43,21 @@ public class DuplicatedByteBuf extends AbstractByteBuf implements WrappedByteBuf
         }
 
         setIndex(buffer.readerIndex(), buffer.writerIndex());
-
-        buffer.unsafe().acquire();
     }
 
     @Override
     public ByteBuf unwrap() {
         return buffer;
+    }
+
+    @Override
+    public ByteBufAllocator alloc() {
+        return buffer.alloc();
+    }
+
+    @Override
+    public ByteOrder order() {
+        return buffer.order();
     }
 
     @Override
@@ -63,8 +71,9 @@ public class DuplicatedByteBuf extends AbstractByteBuf implements WrappedByteBuf
     }
 
     @Override
-    public void capacity(int newCapacity) {
+    public ByteBuf capacity(int newCapacity) {
         buffer.capacity(newCapacity);
+        return this;
     }
 
     @Override
@@ -83,33 +92,63 @@ public class DuplicatedByteBuf extends AbstractByteBuf implements WrappedByteBuf
     }
 
     @Override
+    public boolean hasMemoryAddress() {
+        return buffer.hasMemoryAddress();
+    }
+
+    @Override
+    public long memoryAddress() {
+        return buffer.memoryAddress();
+    }
+
+    @Override
     public byte getByte(int index) {
+        return _getByte(index);
+    }
+
+    @Override
+    protected byte _getByte(int index) {
         return buffer.getByte(index);
     }
 
     @Override
     public short getShort(int index) {
+        return _getShort(index);
+    }
+
+    @Override
+    protected short _getShort(int index) {
         return buffer.getShort(index);
     }
 
     @Override
     public int getUnsignedMedium(int index) {
+        return _getUnsignedMedium(index);
+    }
+
+    @Override
+    protected int _getUnsignedMedium(int index) {
         return buffer.getUnsignedMedium(index);
     }
 
     @Override
     public int getInt(int index) {
+        return _getInt(index);
+    }
+
+    @Override
+    protected int _getInt(int index) {
         return buffer.getInt(index);
     }
 
     @Override
     public long getLong(int index) {
-        return buffer.getLong(index);
+        return _getLong(index);
     }
 
     @Override
-    public ByteBuf duplicate() {
-        return new DuplicatedByteBuf(this);
+    protected long _getLong(int index) {
+        return buffer.getLong(index);
     }
 
     @Override
@@ -123,64 +162,101 @@ public class DuplicatedByteBuf extends AbstractByteBuf implements WrappedByteBuf
     }
 
     @Override
-    public void getBytes(int index, ByteBuf dst, int dstIndex, int length) {
+    public ByteBuf getBytes(int index, ByteBuf dst, int dstIndex, int length) {
         buffer.getBytes(index, dst, dstIndex, length);
+        return this;
     }
 
     @Override
-    public void getBytes(int index, byte[] dst, int dstIndex, int length) {
+    public ByteBuf getBytes(int index, byte[] dst, int dstIndex, int length) {
         buffer.getBytes(index, dst, dstIndex, length);
+        return this;
     }
 
     @Override
-    public void getBytes(int index, ByteBuffer dst) {
+    public ByteBuf getBytes(int index, ByteBuffer dst) {
         buffer.getBytes(index, dst);
+        return this;
     }
 
     @Override
-    public void setByte(int index, int value) {
+    public ByteBuf setByte(int index, int value) {
+        _setByte(index, value);
+        return this;
+    }
+
+    @Override
+    protected void _setByte(int index, int value) {
         buffer.setByte(index, value);
     }
 
     @Override
-    public void setShort(int index, int value) {
+    public ByteBuf setShort(int index, int value) {
+        _setShort(index, value);
+        return this;
+    }
+
+    @Override
+    protected void _setShort(int index, int value) {
         buffer.setShort(index, value);
     }
 
     @Override
-    public void setMedium(int index, int value) {
+    public ByteBuf setMedium(int index, int value) {
+        _setMedium(index, value);
+        return this;
+    }
+
+    @Override
+    protected void _setMedium(int index, int value) {
         buffer.setMedium(index, value);
     }
 
     @Override
-    public void setInt(int index, int value) {
+    public ByteBuf setInt(int index, int value) {
+        _setInt(index, value);
+        return this;
+    }
+
+    @Override
+    protected void _setInt(int index, int value) {
         buffer.setInt(index, value);
     }
 
     @Override
-    public void setLong(int index, long value) {
+    public ByteBuf setLong(int index, long value) {
+        _setLong(index, value);
+        return this;
+    }
+
+    @Override
+    protected void _setLong(int index, long value) {
         buffer.setLong(index, value);
     }
 
     @Override
-    public void setBytes(int index, byte[] src, int srcIndex, int length) {
+    public ByteBuf setBytes(int index, byte[] src, int srcIndex, int length) {
         buffer.setBytes(index, src, srcIndex, length);
+        return this;
     }
 
     @Override
-    public void setBytes(int index, ByteBuf src, int srcIndex, int length) {
+    public ByteBuf setBytes(int index, ByteBuf src, int srcIndex, int length) {
         buffer.setBytes(index, src, srcIndex, length);
+        return this;
     }
 
     @Override
-    public void setBytes(int index, ByteBuffer src) {
+    public ByteBuf setBytes(int index, ByteBuffer src) {
         buffer.setBytes(index, src);
+        return this;
     }
 
     @Override
-    public void getBytes(int index, OutputStream out, int length)
+    public ByteBuf getBytes(int index, OutputStream out, int length)
             throws IOException {
         buffer.getBytes(index, out, length);
+        return this;
     }
 
     @Override
@@ -202,60 +278,28 @@ public class DuplicatedByteBuf extends AbstractByteBuf implements WrappedByteBuf
     }
 
     @Override
-    public boolean hasNioBuffer() {
-        return buffer.hasNioBuffer();
+    public int nioBufferCount() {
+        return buffer.nioBufferCount();
     }
 
     @Override
-    public ByteBuffer nioBuffer(int index, int length) {
-        return buffer.nioBuffer(index, length);
+    public ByteBuffer[] nioBuffers(int index, int length) {
+        return buffer.nioBuffers(index, length);
     }
 
     @Override
-    public boolean hasNioBuffers() {
-        return buffer.hasNioBuffers();
+    public ByteBuffer internalNioBuffer(int index, int length) {
+        return buffer.internalNioBuffer(index, length).duplicate();
     }
 
     @Override
-    public ByteBuffer[] nioBuffers(int offset, int length) {
-        return buffer.nioBuffers(offset, length);
+    public int forEachByte(int index, int length, ByteBufProcessor processor) {
+        return buffer.forEachByte(index, length, processor);
     }
 
     @Override
-    public Unsafe unsafe() {
-        return unsafe;
-    }
-
-    private final class DuplicatedUnsafe implements Unsafe {
-
-        @Override
-        public ByteBuffer nioBuffer() {
-            return buffer.unsafe().nioBuffer();
-        }
-
-        @Override
-        public ByteBuffer[] nioBuffers() {
-            return buffer.unsafe().nioBuffers();
-        }
-
-        @Override
-        public ByteBuf newBuffer(int initialCapacity) {
-            return buffer.unsafe().newBuffer(initialCapacity);
-        }
-
-        @Override
-        public void discardSomeReadBytes() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void acquire() {
-            buffer.unsafe().acquire();
-        }
-
-        @Override
-        public void release() {
-            buffer.unsafe().release();
-        }
+    public int forEachByteDesc(int index, int length, ByteBufProcessor processor) {
+        return buffer.forEachByteDesc(index, length, processor);
     }
 }
+

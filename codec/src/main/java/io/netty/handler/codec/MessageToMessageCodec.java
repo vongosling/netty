@@ -15,63 +15,105 @@
  */
 package io.netty.handler.codec;
 
-import io.netty.buffer.MessageBuf;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandlerAdapter;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundMessageHandler;
-import io.netty.channel.ChannelOutboundMessageHandler;
+import io.netty.channel.ChannelPromise;
+import io.netty.util.ReferenceCounted;
+import io.netty.util.internal.TypeParameterMatcher;
 
-public abstract class MessageToMessageCodec<INBOUND_IN, INBOUND_OUT, OUTBOUND_IN, OUTBOUND_OUT>
-        extends ChannelHandlerAdapter
-        implements ChannelInboundMessageHandler<INBOUND_IN>,
-                   ChannelOutboundMessageHandler<OUTBOUND_IN> {
+import java.util.List;
 
-    private final MessageToMessageEncoder<OUTBOUND_IN, OUTBOUND_OUT> encoder =
-            new MessageToMessageEncoder<OUTBOUND_IN, OUTBOUND_OUT>() {
+/**
+ * A Codec for on-the-fly encoding/decoding of message.
+ *
+ * This can be thought of as a combination of {@link MessageToMessageDecoder} and {@link MessageToMessageEncoder}.
+ *
+ * Here is an example of a {@link MessageToMessageCodec} which just decode from {@link Integer} to {@link Long}
+ * and encode from {@link Long} to {@link Integer}.
+ *
+ * <pre>
+ *     public class NumberCodec extends
+ *             {@link MessageToMessageCodec}&lt;{@link Integer}, {@link Long}&gt; {
+ *         {@code @Override}
+ *         public {@link Long} decode({@link ChannelHandlerContext} ctx, {@link Integer} msg, List&lt;Object&gt; out)
+ *                 throws {@link Exception} {
+ *             out.add(msg.longValue());
+ *         }
+ *
+ *         {@code @Overrride}
+ *         public {@link Integer} encode({@link ChannelHandlerContext} ctx, {@link Long} msg, List&lt;Object&gt; out)
+ *                 throws {@link Exception} {
+ *             out.add(msg.intValue());
+ *         }
+ *     }
+ * </pre>
+ *
+ * Be aware that you need to call {@link ReferenceCounted#retain()} on messages that are just passed through if they
+ * are of type {@link ReferenceCounted}. This is needed as the {@link MessageToMessageCodec} will call
+ * {@link ReferenceCounted#release()} on encoded / decoded messages.
+ */
+public abstract class MessageToMessageCodec<INBOUND_IN, OUTBOUND_IN> extends ChannelDuplexHandler {
+
+    private final MessageToMessageEncoder<Object> encoder = new MessageToMessageEncoder<Object>() {
+
         @Override
-        public boolean isEncodable(Object msg) throws Exception {
-            return MessageToMessageCodec.this.isEncodable(msg);
+        public boolean acceptOutboundMessage(Object msg) throws Exception {
+            return MessageToMessageCodec.this.acceptOutboundMessage(msg);
         }
 
         @Override
-        public OUTBOUND_OUT encode(ChannelHandlerContext ctx, OUTBOUND_IN msg) throws Exception {
-            return MessageToMessageCodec.this.encode(ctx, msg);
+        @SuppressWarnings("unchecked")
+        protected void encode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
+            MessageToMessageCodec.this.encode(ctx, (OUTBOUND_IN) msg, out);
         }
     };
 
-    private final MessageToMessageDecoder<INBOUND_IN, INBOUND_OUT> decoder =
-            new MessageToMessageDecoder<INBOUND_IN, INBOUND_OUT>() {
+    private final MessageToMessageDecoder<Object> decoder = new MessageToMessageDecoder<Object>() {
+
         @Override
-        public boolean isDecodable(Object msg) throws Exception {
-            return MessageToMessageCodec.this.isDecodable(msg);
+        public boolean acceptInboundMessage(Object msg) throws Exception {
+            return MessageToMessageCodec.this.acceptInboundMessage(msg);
         }
 
         @Override
-        public INBOUND_OUT decode(ChannelHandlerContext ctx, INBOUND_IN msg) throws Exception {
-            return MessageToMessageCodec.this.decode(ctx, msg);
+        @SuppressWarnings("unchecked")
+        protected void decode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
+            MessageToMessageCodec.this.decode(ctx, (INBOUND_IN) msg, out);
         }
     };
 
-    @Override
-    public MessageBuf<INBOUND_IN> newInboundBuffer(ChannelHandlerContext ctx) throws Exception {
-        return decoder.newInboundBuffer(ctx);
+    private final TypeParameterMatcher inboundMsgMatcher;
+    private final TypeParameterMatcher outboundMsgMatcher;
+
+    /**
+     * Create a new instance which will try to detect the types to decode and encode out of the type parameter
+     * of the class.
+     */
+    protected MessageToMessageCodec() {
+        inboundMsgMatcher = TypeParameterMatcher.find(this, MessageToMessageCodec.class, "INBOUND_IN");
+        outboundMsgMatcher = TypeParameterMatcher.find(this, MessageToMessageCodec.class, "OUTBOUND_IN");
+    }
+
+    /**
+     * Create a new instance.
+     *
+     * @param inboundMessageType    The type of messages to decode
+     * @param outboundMessageType   The type of messages to encode
+     */
+    protected MessageToMessageCodec(
+            Class<? extends INBOUND_IN> inboundMessageType, Class<? extends OUTBOUND_IN> outboundMessageType) {
+        inboundMsgMatcher = TypeParameterMatcher.get(inboundMessageType);
+        outboundMsgMatcher = TypeParameterMatcher.get(outboundMessageType);
     }
 
     @Override
-    public void inboundBufferUpdated(
-            ChannelHandlerContext ctx) throws Exception {
-        decoder.inboundBufferUpdated(ctx);
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        decoder.channelRead(ctx, msg);
     }
 
     @Override
-    public MessageBuf<OUTBOUND_IN> newOutboundBuffer(ChannelHandlerContext ctx) throws Exception {
-        return encoder.newOutboundBuffer(ctx);
-    }
-
-    @Override
-    public void flush(ChannelHandlerContext ctx, ChannelFuture future) throws Exception {
-        encoder.flush(ctx, future);
+    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+        encoder.write(ctx, msg, promise);
     }
 
     /**
@@ -79,8 +121,8 @@ public abstract class MessageToMessageCodec<INBOUND_IN, INBOUND_OUT, OUTBOUND_IN
      *
      * @param msg the message
      */
-    public boolean isDecodable(Object msg) throws Exception {
-        return true;
+    public boolean acceptInboundMessage(Object msg) throws Exception {
+        return inboundMsgMatcher.match(msg);
     }
 
     /**
@@ -88,10 +130,19 @@ public abstract class MessageToMessageCodec<INBOUND_IN, INBOUND_OUT, OUTBOUND_IN
      *
      * @param msg the message
      */
-    public boolean isEncodable(Object msg) throws Exception {
-        return true;
+    public boolean acceptOutboundMessage(Object msg) throws Exception {
+        return outboundMsgMatcher.match(msg);
     }
 
-    public abstract OUTBOUND_OUT encode(ChannelHandlerContext ctx, OUTBOUND_IN msg) throws Exception;
-    public abstract INBOUND_OUT decode(ChannelHandlerContext ctx, INBOUND_IN msg) throws Exception;
+    /**
+     * @see MessageToMessageEncoder#encode(ChannelHandlerContext, Object, List)
+     */
+    protected abstract void encode(ChannelHandlerContext ctx, OUTBOUND_IN msg, List<Object> out)
+            throws Exception;
+
+    /**
+     * @see MessageToMessageDecoder#decode(ChannelHandlerContext, Object, List)
+     */
+    protected abstract void decode(ChannelHandlerContext ctx, INBOUND_IN msg, List<Object> out)
+            throws Exception;
 }

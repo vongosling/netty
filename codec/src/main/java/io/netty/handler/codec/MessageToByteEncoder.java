@@ -16,53 +16,132 @@
 package io.netty.handler.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.MessageBuf;
-import io.netty.channel.ChannelFuture;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelOutboundMessageHandlerAdapter;
+import io.netty.channel.ChannelOutboundHandler;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelPromise;
+import io.netty.util.ReferenceCountUtil;
+import io.netty.util.internal.TypeParameterMatcher;
 
-public abstract class MessageToByteEncoder<I> extends ChannelOutboundMessageHandlerAdapter<I> {
 
-    @Override
-    public void flush(ChannelHandlerContext ctx, ChannelFuture future) throws Exception {
-        MessageBuf<I> in = ctx.outboundMessageBuffer();
-        ByteBuf out = ctx.nextOutboundByteBuffer();
+/**
+ * {@link ChannelOutboundHandlerAdapter} which encodes message in a stream-like fashion from one message to an
+ * {@link ByteBuf}.
+ *
+ *
+ * Example implementation which encodes {@link Integer}s to a {@link ByteBuf}.
+ *
+ * <pre>
+ *     public class IntegerEncoder extends {@link MessageToByteEncoder}&lt;{@link Integer}&gt; {
+ *         {@code @Override}
+ *         public void encode({@link ChannelHandlerContext} ctx, {@link Integer} msg, {@link ByteBuf} out)
+ *                 throws {@link Exception} {
+ *             out.writeInt(msg);
+ *         }
+ *     }
+ * </pre>
+ */
+public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdapter {
 
-        for (;;) {
-            Object msg = in.poll();
-            if (msg == null) {
-                break;
-            }
+    private final TypeParameterMatcher matcher;
+    private final boolean preferDirect;
 
-            if (!isEncodable(msg)) {
-                ctx.nextOutboundMessageBuffer().add(msg);
-                continue;
-            }
-
-            @SuppressWarnings("unchecked")
-            I imsg = (I) msg;
-            try {
-                encode(ctx, imsg, out);
-            } catch (Throwable t) {
-                if (t instanceof CodecException) {
-                    ctx.fireExceptionCaught(t);
-                } else {
-                    ctx.fireExceptionCaught(new EncoderException(t));
-                }
-            }
-        }
-
-        ctx.flush(future);
+    /**
+     * @see {@link #MessageToByteEncoder(boolean)} with {@code true} as boolean parameter.
+     */
+    protected MessageToByteEncoder() {
+        this(true);
     }
 
     /**
-     * Returns {@code true} if and only if the specified message can be encoded by this encoder.
-     *
-     * @param msg the message
+     * @see {@link #MessageToByteEncoder(Class, boolean)} with {@code true} as boolean value.
      */
-    public boolean isEncodable(Object msg) throws Exception {
-        return true;
+    protected MessageToByteEncoder(Class<? extends I> outboundMessageType) {
+        this(outboundMessageType, true);
     }
 
-    public abstract void encode(ChannelHandlerContext ctx, I msg, ByteBuf out) throws Exception;
+    /**
+     * Create a new instance which will try to detect the types to match out of the type parameter of the class.
+     *
+     * @param preferDirect          {@code true} if a direct {@link ByteBuf} should be tried to be used as target for
+     *                              the encoded messages. If {@code false} is used it will allocate a heap
+     *                              {@link ByteBuf}, which is backed by an byte array.
+     */
+    protected MessageToByteEncoder(boolean preferDirect) {
+        matcher = TypeParameterMatcher.find(this, MessageToByteEncoder.class, "I");
+        this.preferDirect = preferDirect;
+    }
+
+    /**
+     * Create a new instance
+     *
+     * @param outboundMessageType   The tpye of messages to match
+     * @param preferDirect          {@code true} if a direct {@link ByteBuf} should be tried to be used as target for
+     *                              the encoded messages. If {@code false} is used it will allocate a heap
+     *                              {@link ByteBuf}, which is backed by an byte array.
+     */
+    protected MessageToByteEncoder(Class<? extends I> outboundMessageType, boolean preferDirect) {
+        matcher = TypeParameterMatcher.get(outboundMessageType);
+        this.preferDirect = preferDirect;
+    }
+
+    /**
+     * Returns {@code true} if the given message should be handled. If {@code false} it will be passed to the next
+     * {@link ChannelOutboundHandler} in the {@link ChannelPipeline}.
+     */
+    public boolean acceptOutboundMessage(Object msg) throws Exception {
+        return matcher.match(msg);
+    }
+
+    @Override
+    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+        ByteBuf buf = null;
+        try {
+            if (acceptOutboundMessage(msg)) {
+                @SuppressWarnings("unchecked")
+                I cast = (I) msg;
+                if (preferDirect) {
+                    buf = ctx.alloc().ioBuffer();
+                } else {
+                    buf = ctx.alloc().heapBuffer();
+                }
+                try {
+                    encode(ctx, cast, buf);
+                } finally {
+                    ReferenceCountUtil.release(cast);
+                }
+
+                if (buf.isReadable()) {
+                    ctx.write(buf, promise);
+                } else {
+                    buf.release();
+                    ctx.write(Unpooled.EMPTY_BUFFER, promise);
+                }
+                buf = null;
+            } else {
+                ctx.write(msg, promise);
+            }
+        } catch (EncoderException e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new EncoderException(e);
+        } finally {
+            if (buf != null) {
+                buf.release();
+            }
+        }
+    }
+
+    /**
+     * Encode a message into a {@link ByteBuf}. This method will be called for each written message that can be handled
+     * by this encoder.
+     *
+     * @param ctx           the {@link ChannelHandlerContext} which this {@link MessageToByteEncoder} belongs to
+     * @param msg           the message to encode
+     * @param out           the {@link ByteBuf} into which the encoded message will be written
+     * @throws Exception    is thrown if an error accour
+     */
+    protected abstract void encode(ChannelHandlerContext ctx, I msg, ByteBuf out) throws Exception;
 }

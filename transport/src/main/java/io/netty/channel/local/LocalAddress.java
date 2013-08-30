@@ -22,8 +22,6 @@ import java.net.SocketAddress;
 /**
  * An endpoint in the local transport.  Each endpoint is identified by a unique
  * case-insensitive string.
- *
- * @apiviz.landmark
  */
 public final class LocalAddress extends SocketAddress implements Comparable<LocalAddress> {
 
@@ -42,7 +40,7 @@ public final class LocalAddress extends SocketAddress implements Comparable<Loca
     LocalAddress(Channel channel) {
         StringBuilder buf = new StringBuilder(16);
         buf.append("local:E");
-        buf.append(Long.toHexString(channel.id().intValue() & 0xFFFFFFFFL | 0x100000000L));
+        buf.append(Long.toHexString(channel.hashCode() & 0xFFFFFFFFL | 0x100000000L));
         buf.setCharAt(7, ':');
         id = buf.substring(6);
         strVal = buf.toString();
@@ -56,7 +54,7 @@ public final class LocalAddress extends SocketAddress implements Comparable<Loca
             throw new NullPointerException("id");
         }
         id = id.trim().toLowerCase();
-        if (id.length() == 0) {
+        if (id.isEmpty()) {
             throw new IllegalArgumentException("empty id");
         }
         this.id = id;

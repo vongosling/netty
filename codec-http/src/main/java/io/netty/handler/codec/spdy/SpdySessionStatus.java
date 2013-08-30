@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -17,7 +17,6 @@ package io.netty.handler.codec.spdy;
 
 /**
  * The SPDY session status code and its description.
- * @apiviz.exclude
  */
 public class SpdySessionStatus implements Comparable<SpdySessionStatus> {
 
@@ -34,10 +33,10 @@ public class SpdySessionStatus implements Comparable<SpdySessionStatus> {
         new SpdySessionStatus(1, "PROTOCOL_ERROR");
 
     /**
-     * 11 Internal Error
+     * 2 Internal Error
      */
     public static final SpdySessionStatus INTERNAL_ERROR =
-        new SpdySessionStatus(11, "INTERNAL_ERROR");
+        new SpdySessionStatus(2, "INTERNAL_ERROR");
 
     /**
      * Returns the {@link SpdySessionStatus} represented by the specified code.
@@ -50,7 +49,7 @@ public class SpdySessionStatus implements Comparable<SpdySessionStatus> {
             return OK;
         case 1:
             return PROTOCOL_ERROR;
-        case 11:
+        case 2:
             return INTERNAL_ERROR;
         }
 

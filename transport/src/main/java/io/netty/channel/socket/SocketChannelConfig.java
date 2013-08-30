@@ -15,10 +15,13 @@
  */
 package io.netty.channel.socket;
 
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelConfig;
-import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInputShutdownEvent;
+import io.netty.channel.ChannelInboundHandler;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.MessageSizeEstimator;
+import io.netty.channel.RecvByteBufAllocator;
 
 import java.net.Socket;
 import java.net.StandardSocketOptions;
@@ -35,33 +38,41 @@ import java.net.StandardSocketOptions;
  * <tr>
  * <th>Name</th><th>Associated setter method</th>
  * </tr><tr>
- * <td>{@code "keepAlive"}</td><td>{@link #setKeepAlive(boolean)}</td>
+ * <td>{@link ChannelOption#SO_KEEPALIVE}</td><td>{@link #setKeepAlive(boolean)}</td>
  * </tr><tr>
- * <td>{@code "reuseAddress"}</td><td>{@link #setReuseAddress(boolean)}</td>
+ * <td>{@link ChannelOption#SO_REUSEADDR}</td><td>{@link #setReuseAddress(boolean)}</td>
  * </tr><tr>
- * <td>{@code "soLinger"}</td><td>{@link #setSoLinger(int)}</td>
+ * <td>{@link ChannelOption#SO_LINGER}</td><td>{@link #setSoLinger(int)}</td>
  * </tr><tr>
- * <td>{@code "tcpNoDelay"}</td><td>{@link #setTcpNoDelay(boolean)}</td>
+ * <td>{@link ChannelOption#TCP_NODELAY}</td><td>{@link #setTcpNoDelay(boolean)}</td>
  * </tr><tr>
- * <td>{@code "receiveBufferSize"}</td><td>{@link #setReceiveBufferSize(int)}</td>
+ * <td>{@link ChannelOption#SO_RCVBUF}</td><td>{@link #setReceiveBufferSize(int)}</td>
  * </tr><tr>
- * <td>{@code "sendBufferSize"}</td><td>{@link #setSendBufferSize(int)}</td>
+ * <td>{@link ChannelOption#SO_SNDBUF}</td><td>{@link #setSendBufferSize(int)}</td>
  * </tr><tr>
- * <td>{@code "trafficClass"}</td><td>{@link #setTrafficClass(int)}</td>
+ * <td>{@link ChannelOption#IP_TOS}</td><td>{@link #setTrafficClass(int)}</td>
+ * </tr><tr>
+ * <td>{@link ChannelOption#ALLOW_HALF_CLOSURE}</td><td>{@link #setAllowHalfClosure(boolean)}</td>
  * </tr>
  * </table>
  */
 public interface SocketChannelConfig extends ChannelConfig {
 
     /**
-     * Gets the {@link StandardSocketOptions#TCP_NODELAY} option.
+     * Gets the {@link StandardSocketOptions#TCP_NODELAY} option.  Please note that the default value of this option
+     * is {@code true} unlike the operating system default ({@code false}). However, for some buggy platforms, such as
+     * Android, that shows erratic behavior with Nagle's algorithm disabled, the default value remains to be
+     * {@code false}.
      */
     boolean isTcpNoDelay();
 
     /**
-     * Sets the {@link StandardSocketOptions#TCP_NODELAY} option.
+     * Sets the {@link StandardSocketOptions#TCP_NODELAY} option.  Please note that the default value of this option
+     * is {@code true} unlike the operating system default ({@code false}). However, for some buggy platforms, such as
+     * Android, that shows erratic behavior with Nagle's algorithm disabled, the default value remains to be
+     * {@code false}.
      */
-    void setTcpNoDelay(boolean tcpNoDelay);
+    SocketChannelConfig setTcpNoDelay(boolean tcpNoDelay);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_LINGER} option.
@@ -71,7 +82,7 @@ public interface SocketChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_LINGER} option.
      */
-    void setSoLinger(int soLinger);
+    SocketChannelConfig setSoLinger(int soLinger);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_SNDBUF} option.
@@ -81,7 +92,7 @@ public interface SocketChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_SNDBUF} option.
      */
-    void setSendBufferSize(int sendBufferSize);
+    SocketChannelConfig setSendBufferSize(int sendBufferSize);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_RCVBUF} option.
@@ -91,7 +102,7 @@ public interface SocketChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_RCVBUF} option.
      */
-    void setReceiveBufferSize(int receiveBufferSize);
+    SocketChannelConfig setReceiveBufferSize(int receiveBufferSize);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_KEEPALIVE} option.
@@ -101,7 +112,7 @@ public interface SocketChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_KEEPALIVE} option.
      */
-    void setKeepAlive(boolean keepAlive);
+    SocketChannelConfig setKeepAlive(boolean keepAlive);
 
     /**
      * Gets the {@link StandardSocketOptions#IP_TOS} option.
@@ -111,7 +122,7 @@ public interface SocketChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#IP_TOS} option.
      */
-    void setTrafficClass(int trafficClass);
+    SocketChannelConfig setTrafficClass(int trafficClass);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_REUSEADDR} option.
@@ -121,13 +132,13 @@ public interface SocketChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_REUSEADDR} option.
      */
-    void setReuseAddress(boolean reuseAddress);
+    SocketChannelConfig setReuseAddress(boolean reuseAddress);
 
     /**
      * Sets the performance preferences as specified in
      * {@link Socket#setPerformancePreferences(int, int, int)}.
      */
-    void setPerformancePreferences(int connectionTime, int latency, int bandwidth);
+    SocketChannelConfig setPerformancePreferences(int connectionTime, int latency, int bandwidth);
 
     /**
      * Returns {@code true} if and only if the channel should not close itself when its remote
@@ -139,9 +150,31 @@ public interface SocketChannelConfig extends ChannelConfig {
     /**
      * Sets whether the channel should not close itself when its remote peer shuts down output to
      * make the connection half-closed.  If {@code true} the connection is not closed when the
-     * remote peer shuts down output. Instead, {@link ChannelHandler#userEventTriggered(ChannelHandlerContext, Object)}
+     * remote peer shuts down output. Instead,
+     * {@link ChannelInboundHandler#userEventTriggered(ChannelHandlerContext, Object)}
      * is invoked with a {@link ChannelInputShutdownEvent} object. If {@code false}, the connection
      * is closed automatically.
      */
-    void setAllowHalfClosure(boolean allowHalfClosure);
+    SocketChannelConfig setAllowHalfClosure(boolean allowHalfClosure);
+
+    @Override
+    SocketChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis);
+
+    @Override
+    SocketChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead);
+
+    @Override
+    SocketChannelConfig setWriteSpinCount(int writeSpinCount);
+
+    @Override
+    SocketChannelConfig setAllocator(ByteBufAllocator allocator);
+
+    @Override
+    SocketChannelConfig setRecvByteBufAllocator(RecvByteBufAllocator allocator);
+
+    @Override
+    SocketChannelConfig setAutoRead(boolean autoRead);
+
+    @Override
+    SocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
 }

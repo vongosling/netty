@@ -16,8 +16,9 @@
 package io.netty.channel.socket.nio;
 
 import io.netty.channel.ChannelException;
+import io.netty.channel.socket.DatagramChannelConfig;
 import io.netty.channel.socket.DefaultDatagramChannelConfig;
-import io.netty.util.internal.DetectionUtil;
+import io.netty.util.internal.PlatformDependent;
 
 import java.lang.reflect.Method;
 import java.net.InetAddress;
@@ -28,7 +29,7 @@ import java.nio.channels.NetworkChannel;
 import java.util.Enumeration;
 
 /**
- * The default {@link NioSocketChannelConfig} implementation.
+ * The default {@link NioDatagramChannelConfig} implementation.
  */
 class NioDatagramChannelConfig extends DefaultDatagramChannelConfig {
 
@@ -96,11 +97,11 @@ class NioDatagramChannelConfig extends DefaultDatagramChannelConfig {
         SET_OPTION = setOption;
     }
 
-    private final DatagramChannel channel;
+    private final DatagramChannel javaChannel;
 
-    NioDatagramChannelConfig(DatagramChannel channel) {
-        super(channel.socket());
-        this.channel = channel;
+    NioDatagramChannelConfig(NioDatagramChannel channel, DatagramChannel javaChannel) {
+        super(channel, javaChannel.socket());
+        this.javaChannel = javaChannel;
     }
 
     @Override
@@ -109,8 +110,9 @@ class NioDatagramChannelConfig extends DefaultDatagramChannelConfig {
     }
 
     @Override
-    public void setTimeToLive(int ttl) {
+    public DatagramChannelConfig setTimeToLive(int ttl) {
         setOption0(IP_MULTICAST_TTL, ttl);
+        return this;
     }
 
     @Override
@@ -128,12 +130,13 @@ class NioDatagramChannelConfig extends DefaultDatagramChannelConfig {
     }
 
     @Override
-    public void setInterface(InetAddress interfaceAddress) {
+    public DatagramChannelConfig setInterface(InetAddress interfaceAddress) {
         try {
             setNetworkInterface(NetworkInterface.getByInetAddress(interfaceAddress));
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
+        return this;
     }
 
     @Override
@@ -142,8 +145,9 @@ class NioDatagramChannelConfig extends DefaultDatagramChannelConfig {
     }
 
     @Override
-    public void setNetworkInterface(NetworkInterface networkInterface) {
+    public DatagramChannelConfig setNetworkInterface(NetworkInterface networkInterface) {
         setOption0(IP_MULTICAST_IF, networkInterface);
+        return this;
     }
 
     @Override
@@ -152,16 +156,17 @@ class NioDatagramChannelConfig extends DefaultDatagramChannelConfig {
     }
 
     @Override
-    public void setLoopbackModeDisabled(boolean loopbackModeDisabled) {
+    public DatagramChannelConfig setLoopbackModeDisabled(boolean loopbackModeDisabled) {
         setOption0(IP_MULTICAST_LOOP, loopbackModeDisabled);
+        return this;
     }
 
     private Object getOption0(Object option) {
-        if (DetectionUtil.javaVersion() < 7) {
+        if (PlatformDependent.javaVersion() < 7) {
             throw new UnsupportedOperationException();
         } else {
             try {
-                return GET_OPTION.invoke(channel, option);
+                return GET_OPTION.invoke(javaChannel, option);
             } catch (Exception e) {
                 throw new ChannelException(e);
             }
@@ -169,14 +174,15 @@ class NioDatagramChannelConfig extends DefaultDatagramChannelConfig {
     }
 
     private void setOption0(Object option, Object value) {
-        if (DetectionUtil.javaVersion() < 7) {
+        if (PlatformDependent.javaVersion() < 7) {
             throw new UnsupportedOperationException();
         } else {
             try {
-                SET_OPTION.invoke(channel, option, value);
+                SET_OPTION.invoke(javaChannel, option, value);
             } catch (Exception e) {
                 throw new ChannelException(e);
             }
         }
     }
+
 }

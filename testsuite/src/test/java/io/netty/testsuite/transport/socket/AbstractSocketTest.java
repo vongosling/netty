@@ -17,20 +17,19 @@ package io.netty.testsuite.transport.socket;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.logging.InternalLogger;
-import io.netty.logging.InternalLoggerFactory;
 import io.netty.testsuite.transport.socket.SocketTestPermutation.Factory;
 import io.netty.testsuite.util.TestUtils;
-import io.netty.util.NetworkConstants;
+import io.netty.util.NetUtil;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
+import org.junit.Rule;
+import org.junit.rules.TestName;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map.Entry;
-
-import org.junit.Rule;
-import org.junit.rules.TestName;
 
 public abstract class AbstractSocketTest {
 
@@ -46,7 +45,7 @@ public abstract class AbstractSocketTest {
     protected volatile Bootstrap cb;
     protected volatile InetSocketAddress addr;
     protected volatile Factory<Bootstrap> currentBootstrap;
-    
+
     protected void run() throws Throwable {
         int i = 0;
         for (Entry<Factory<ServerBootstrap>, Factory<Bootstrap>> e: COMBO) {
@@ -54,21 +53,18 @@ public abstract class AbstractSocketTest {
             sb = e.getKey().newInstance();
             cb = e.getValue().newInstance();
             addr = new InetSocketAddress(
-                    NetworkConstants.LOCALHOST, TestUtils.getFreePort());
+                    NetUtil.LOCALHOST, TestUtils.getFreePort());
             sb.localAddress(addr);
             cb.remoteAddress(addr);
 
             logger.info(String.format(
-                    "Running: %s %d of %d", testName.getMethodName(), ++ i, COMBO.size()));
+                    "Running: %s %d of %d (%s + %s)", testName.getMethodName(), ++ i, COMBO.size(), sb, cb));
             try {
                 Method m = getClass().getDeclaredMethod(
                         testName.getMethodName(), ServerBootstrap.class, Bootstrap.class);
                 m.invoke(this, sb, cb);
             } catch (InvocationTargetException ex) {
                 throw ex.getCause();
-            } finally {
-                sb.shutdown();
-                cb.shutdown();
             }
         }
     }

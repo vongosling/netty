@@ -15,31 +15,30 @@
  */
 package io.netty.handler.codec.http;
 
-import static io.netty.handler.codec.http.HttpConstants.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.CharsetUtil;
 
+import static io.netty.handler.codec.http.HttpConstants.*;
+
 /**
- * Encodes an {@link HttpResponse} or an {@link HttpChunk} into
+ * Encodes an {@link HttpResponse} or an {@link HttpContent} into
  * a {@link ByteBuf}.
  */
-public class HttpResponseEncoder extends HttpMessageEncoder {
+public class HttpResponseEncoder extends HttpObjectEncoder<HttpResponse> {
+    private static final byte[] CRLF = { CR, LF };
 
-    /**
-     * Creates a new instance.
-     */
-    public HttpResponseEncoder() {
+    @Override
+    public boolean acceptOutboundMessage(Object msg) throws Exception {
+        return super.acceptOutboundMessage(msg) && !(msg instanceof HttpRequest);
     }
 
     @Override
-    protected void encodeInitialLine(ByteBuf buf, HttpMessage message) throws Exception {
-        HttpResponse response = (HttpResponse) message;
-        buf.writeBytes(response.getProtocolVersion().toString().getBytes(CharsetUtil.US_ASCII));
+    protected void encodeInitialLine(ByteBuf buf, HttpResponse response) throws Exception {
+        encodeAscii(response.getProtocolVersion().toString(), buf);
         buf.writeByte(SP);
-        buf.writeBytes(String.valueOf(response.getStatus().getCode()).getBytes(CharsetUtil.US_ASCII));
+        encodeAscii(String.valueOf(response.getStatus().code()), buf);
         buf.writeByte(SP);
-        buf.writeBytes(String.valueOf(response.getStatus().getReasonPhrase()).getBytes(CharsetUtil.US_ASCII));
-        buf.writeByte(CR);
-        buf.writeByte(LF);
+        encodeAscii(String.valueOf(response.getStatus().reasonPhrase()), buf);
+        buf.writeBytes(CRLF);
     }
 }

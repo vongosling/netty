@@ -16,25 +16,36 @@
 package io.netty.testsuite.transport.socket;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.bootstrap.ChannelFactory;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.Channel;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.oio.OioEventLoopGroup;
 import io.netty.channel.socket.InternetProtocolFamily;
-import io.netty.channel.socket.aio.AioEventLoopGroup;
-import io.netty.channel.socket.aio.AioServerSocketChannel;
-import io.netty.channel.socket.aio.AioSocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.channel.socket.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.channel.socket.oio.OioDatagramChannel;
-import io.netty.channel.socket.oio.OioEventLoopGroup;
 import io.netty.channel.socket.oio.OioServerSocketChannel;
 import io.netty.channel.socket.oio.OioSocketChannel;
+import io.netty.util.concurrent.DefaultThreadFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
 
 final class SocketTestPermutation {
+    private static final int BOSSES = 2;
+    private static final int WORKERS = 3;
+    private static final EventLoopGroup nioBossGroup =
+            new NioEventLoopGroup(BOSSES, new DefaultThreadFactory("testsuite-nio-boss", true));
+    private static final EventLoopGroup nioWorkerGroup =
+            new NioEventLoopGroup(WORKERS, new DefaultThreadFactory("testsuite-nio-worker", true));
+    private static final EventLoopGroup oioBossGroup =
+            new OioEventLoopGroup(Integer.MAX_VALUE, new DefaultThreadFactory("testsuite-oio-boss", true));
+    private static final EventLoopGroup oioWorkerGroup =
+            new OioEventLoopGroup(Integer.MAX_VALUE, new DefaultThreadFactory("testsuite-oio-worker", true));
 
     static List<Entry<Factory<ServerBootstrap>, Factory<Bootstrap>>> socket() {
         List<Entry<Factory<ServerBootstrap>, Factory<Bootstrap>>> list =
@@ -86,14 +97,23 @@ final class SocketTestPermutation {
         bfs.add(new Factory<Bootstrap>() {
             @Override
             public Bootstrap newInstance() {
-                return new Bootstrap().group(new NioEventLoopGroup()).channel(
-                        new NioDatagramChannel(InternetProtocolFamily.IPv4));
+                return new Bootstrap().group(nioWorkerGroup).channelFactory(new ChannelFactory<Channel>() {
+                    @Override
+                    public Channel newChannel() {
+                       return new NioDatagramChannel(InternetProtocolFamily.IPv4);
+                    }
+
+                    @Override
+                    public String toString() {
+                        return NioDatagramChannel.class.getSimpleName() + ".class";
+                    }
+                });
             }
         });
         bfs.add(new Factory<Bootstrap>() {
             @Override
             public Bootstrap newInstance() {
-                return new Bootstrap().group(new OioEventLoopGroup()).channel(new OioDatagramChannel());
+                return new Bootstrap().group(oioWorkerGroup).channel(OioDatagramChannel.class);
             }
         });
 
@@ -131,27 +151,15 @@ final class SocketTestPermutation {
         list.add(new Factory<ServerBootstrap>() {
             @Override
             public ServerBootstrap newInstance() {
-                return new ServerBootstrap().
-                                group(new NioEventLoopGroup(), new NioEventLoopGroup()).
-                                channel(new NioServerSocketChannel());
+                return new ServerBootstrap().group(nioBossGroup, nioWorkerGroup)
+                                            .channel(NioServerSocketChannel.class);
             }
         });
         list.add(new Factory<ServerBootstrap>() {
             @Override
             public ServerBootstrap newInstance() {
-                AioEventLoopGroup parentGroup = new AioEventLoopGroup();
-                AioEventLoopGroup childGroup = new AioEventLoopGroup();
-                return new ServerBootstrap().
-                                group(parentGroup, childGroup).
-                                channel(new AioServerSocketChannel(parentGroup, childGroup));
-            }
-        });
-        list.add(new Factory<ServerBootstrap>() {
-            @Override
-            public ServerBootstrap newInstance() {
-                return new ServerBootstrap().
-                                group(new OioEventLoopGroup(), new OioEventLoopGroup()).
-                                channel(new OioServerSocketChannel());
+                return new ServerBootstrap().group(oioBossGroup, oioWorkerGroup)
+                                            .channel(OioServerSocketChannel.class);
             }
         });
 
@@ -163,26 +171,19 @@ final class SocketTestPermutation {
         list.add(new Factory<Bootstrap>() {
             @Override
             public Bootstrap newInstance() {
-                return new Bootstrap().group(new NioEventLoopGroup()).channel(new NioSocketChannel());
+                return new Bootstrap().group(nioWorkerGroup).channel(NioSocketChannel.class);
             }
         });
         list.add(new Factory<Bootstrap>() {
             @Override
             public Bootstrap newInstance() {
-                AioEventLoopGroup loop = new AioEventLoopGroup();
-                return new Bootstrap().group(loop).channel(new AioSocketChannel(loop));
-            }
-        });
-        list.add(new Factory<Bootstrap>() {
-            @Override
-            public Bootstrap newInstance() {
-                return new Bootstrap().group(new OioEventLoopGroup()).channel(new OioSocketChannel());
+                return new Bootstrap().group(oioWorkerGroup).channel(OioSocketChannel.class);
             }
         });
         return list;
     }
 
-    private SocketTestPermutation() {}
+    private SocketTestPermutation() { }
 
     interface Factory<T> {
         T newInstance();

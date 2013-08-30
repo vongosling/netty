@@ -22,6 +22,7 @@ import io.netty.handler.codec.ReplayingDecoder;
 import io.netty.handler.codec.TooLongFrameException;
 
 import java.io.ObjectStreamConstants;
+import java.util.List;
 
 import org.jboss.marshalling.ByteInput;
 import org.jboss.marshalling.Unmarshaller;
@@ -31,9 +32,10 @@ import org.jboss.marshalling.Unmarshaller;
  *
  * If you can you should use {@link MarshallingDecoder}.
  */
-public class CompatibleMarshallingDecoder extends ReplayingDecoder<Object, Void> {
+public class CompatibleMarshallingDecoder extends ReplayingDecoder<Void> {
     protected final UnmarshallerProvider provider;
     protected final int maxObjectSize;
+    private boolean discardingTooLongFrame;
 
     /**
      * Create a new instance of {@link CompatibleMarshallingDecoder}.
@@ -54,7 +56,13 @@ public class CompatibleMarshallingDecoder extends ReplayingDecoder<Object, Void>
     }
 
     @Override
-    public Object decode(ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf buffer, List<Object> out) throws Exception {
+        if (discardingTooLongFrame) {
+            buffer.skipBytes(actualReadableBytes());
+            checkpoint();
+            return;
+        }
+
         Unmarshaller unmarshaller = provider.getUnmarshaller(ctx);
         ByteInput input = new ChannelBufferByteInput(buffer);
         if (maxObjectSize != Integer.MAX_VALUE) {
@@ -64,9 +72,10 @@ public class CompatibleMarshallingDecoder extends ReplayingDecoder<Object, Void>
             unmarshaller.start(input);
             Object obj = unmarshaller.readObject();
             unmarshaller.finish();
-            return obj;
+            out.add(obj);
         } catch (LimitingByteInput.TooBigObjectException e) {
-            throw new TooLongFrameException("Object to big to unmarshal");
+            discardingTooLongFrame = true;
+            throw new TooLongFrameException();
         } finally {
             // Call close in a finally block as the ReplayingDecoder will throw an Error if not enough bytes are
             // readable. This helps to be sure that we do not leak resource
@@ -75,19 +84,19 @@ public class CompatibleMarshallingDecoder extends ReplayingDecoder<Object, Void>
     }
 
     @Override
-    public Object decodeLast(ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+    protected void decodeLast(ChannelHandlerContext ctx, ByteBuf buffer, List<Object> out) throws Exception {
         switch (buffer.readableBytes()) {
         case 0:
-            return null;
+            return;
         case 1:
             // Ignore the last TC_RESET
             if (buffer.getByte(buffer.readerIndex()) == ObjectStreamConstants.TC_RESET) {
                 buffer.skipBytes(1);
-                return null;
+                return;
             }
         }
 
-        return decode(ctx, buffer);
+        decode(ctx, buffer, out);
     }
 
     @Override

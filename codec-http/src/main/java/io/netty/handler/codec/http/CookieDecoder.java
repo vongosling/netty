@@ -15,6 +15,8 @@
  */
 package io.netty.handler.codec.http;
 
+import io.netty.util.internal.StringUtil;
+
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,13 +36,10 @@ import java.util.TreeSet;
  *
  * @see ClientCookieEncoder
  * @see ServerCookieEncoder
- *
- * @apiviz.stereotype utility
- * @apiviz.has        io.netty.handler.codec.http.Cookie oneway - - decodes
  */
 public final class CookieDecoder {
 
-    private static final String COMMA = ",";
+    private static final char COMMA = ',';
 
     /**
      * Decodes the specified HTTP header value into {@link Cookie}s.
@@ -118,13 +117,10 @@ public final class CookieDecoder {
                 } else if (CookieHeaderNames.EXPIRES.equalsIgnoreCase(name)) {
                     try {
                         long maxAgeMillis =
-                            new HttpHeaderDateFormat().parse(value).getTime() -
+                            HttpHeaderDateFormat.get().parse(value).getTime() -
                             System.currentTimeMillis();
-                        if (maxAgeMillis <= 0) {
-                            maxAge = 0;
-                        } else {
-                            maxAge = maxAgeMillis / 1000 + (maxAgeMillis % 1000 != 0? 1 : 0);
-                        }
+
+                        maxAge = maxAgeMillis / 1000 + (maxAgeMillis % 1000 != 0? 1 : 0);
                     } catch (ParseException e) {
                         // Ignore.
                     }
@@ -133,7 +129,7 @@ public final class CookieDecoder {
                 } else if (CookieHeaderNames.VERSION.equalsIgnoreCase(name)) {
                     version = Integer.parseInt(value);
                 } else if (CookieHeaderNames.PORT.equalsIgnoreCase(name)) {
-                    String[] portList = value.split(COMMA);
+                    String[] portList = StringUtil.split(value, COMMA);
                     for (String s1: portList) {
                         try {
                             ports.add(Integer.valueOf(s1));

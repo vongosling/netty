@@ -15,57 +15,56 @@
  */
 package io.netty.handler.codec.frame;
 
-import static org.junit.Assert.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.embedded.EmbeddedByteChannel;
+import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.Delimiters;
 import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.CharsetUtil;
-
-import org.junit.Assert;
 import org.junit.Test;
+
+import static org.junit.Assert.*;
 
 public class DelimiterBasedFrameDecoderTest {
 
     @Test
     public void testFailSlowTooLongFrameRecovery() throws Exception {
-        EmbeddedByteChannel ch = new EmbeddedByteChannel(
+        EmbeddedChannel ch = new EmbeddedChannel(
                 new DelimiterBasedFrameDecoder(1, true, false, Delimiters.nulDelimiter()));
 
         for (int i = 0; i < 2; i ++) {
             ch.writeInbound(Unpooled.wrappedBuffer(new byte[] { 1, 2 }));
             try {
                 assertTrue(ch.writeInbound(Unpooled.wrappedBuffer(new byte[] { 0 })));
-                Assert.fail(DecoderException.class.getSimpleName() + " must be raised.");
+                fail(DecoderException.class.getSimpleName() + " must be raised.");
             } catch (TooLongFrameException e) {
                 // Expected
             }
 
             ch.writeInbound(Unpooled.wrappedBuffer(new byte[] { 'A', 0 }));
             ByteBuf buf = (ByteBuf) ch.readInbound();
-            Assert.assertEquals("A", buf.toString(CharsetUtil.ISO_8859_1));
+            assertEquals("A", buf.toString(CharsetUtil.ISO_8859_1));
         }
     }
 
     @Test
     public void testFailFastTooLongFrameRecovery() throws Exception {
-        EmbeddedByteChannel ch = new EmbeddedByteChannel(
+        EmbeddedChannel ch = new EmbeddedChannel(
                 new DelimiterBasedFrameDecoder(1, Delimiters.nulDelimiter()));
 
         for (int i = 0; i < 2; i ++) {
             try {
                 assertTrue(ch.writeInbound(Unpooled.wrappedBuffer(new byte[] { 1, 2 })));
-                Assert.fail(DecoderException.class.getSimpleName() + " must be raised.");
+                fail(DecoderException.class.getSimpleName() + " must be raised.");
             } catch (TooLongFrameException e) {
                 // Expected
             }
 
             ch.writeInbound(Unpooled.wrappedBuffer(new byte[] { 0, 'A', 0 }));
             ByteBuf buf = (ByteBuf) ch.readInbound();
-            Assert.assertEquals("A", buf.toString(CharsetUtil.ISO_8859_1));
+            assertEquals("A", buf.toString(CharsetUtil.ISO_8859_1));
         }
     }
 }

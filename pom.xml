@@ -26,7 +26,7 @@
   <groupId>io.netty</groupId>
   <artifactId>netty-parent</artifactId>
   <packaging>pom</packaging>
-  <version>4.0.0.Alpha4-SNAPSHOT</version>
+  <version>4.1.0.Alpha1-SNAPSHOT</version>
 
   <name>Netty</name>
   <url>http://netty.io/</url>
@@ -68,7 +68,20 @@
   </developers>
 
   <properties>
-    <jboss.marshalling.version>1.3.14.GA</jboss.marshalling.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <jboss.marshalling.version>1.3.18.GA</jboss.marshalling.version>
+    <test.jvm.argLine>
+      -server 
+      -dsa -da -ea:io.netty...
+      -XX:+AggressiveOpts
+      -XX:+TieredCompilation
+      -XX:+UseBiasedLocking
+      -XX:+UseFastAccessorMethods
+      -XX:+UseStringCache
+      -XX:+OptimizeStringConcat
+      -XX:+HeapDumpOnOutOfMemoryError
+    </test.jvm.argLine>
   </properties>
  
   <modules>
@@ -76,16 +89,31 @@
     <module>buffer</module>
     <module>codec</module>
     <module>codec-http</module>
+    <module>codec-socks</module>
     <module>transport</module>
+    <module>transport-rxtx</module>
+    <module>transport-sctp</module>
+    <module>transport-udt</module>
     <module>handler</module>
     <module>example</module>
     <module>testsuite</module>
+    <module>testsuite-osgi</module>
+    <module>microbench</module>
     <module>all</module>
     <module>tarball</module>
   </modules>
 
   <dependencyManagement>
     <dependencies>
+      <!-- Byte code generator - completely optional -->
+      <dependency>
+        <groupId>org.javassist</groupId>
+        <artifactId>javassist</artifactId>
+        <version>3.18.0-GA</version>
+        <scope>compile</scope>
+        <optional>true</optional>
+      </dependency>
+
       <!-- JBoss Marshalling - completely optional -->
       <dependency>
         <groupId>org.jboss.marshalling</groupId>
@@ -98,7 +126,12 @@
       <dependency>
         <groupId>com.google.protobuf</groupId>
         <artifactId>protobuf-java</artifactId>
-        <version>2.4.1</version>
+        <version>2.5.0</version>
+      </dependency>
+      <dependency>
+        <groupId>com.jcraft</groupId>
+        <artifactId>jzlib</artifactId>
+          <version>1.1.2</version>
       </dependency>
 
       <dependency>
@@ -108,36 +141,26 @@
       </dependency>
 
       <dependency>
+        <groupId>com.barchart.udt</groupId>
+        <artifactId>barchart-udt-bundle</artifactId>
+        <version>2.3.0</version>
+      </dependency>
+
+      <dependency>
         <groupId>javax.servlet</groupId>
         <artifactId>servlet-api</artifactId>
         <version>2.5</version>
       </dependency>
 
       <dependency>
-        <groupId>org.osgi</groupId>
-        <artifactId>org.osgi.core</artifactId>
-        <version>4.3.0</version>
-      </dependency>
-      <dependency>
-        <groupId>org.osgi</groupId>
-        <artifactId>org.osgi.compendium</artifactId>
-        <version>4.3.0</version>
-      </dependency>
-
-      <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>
-        <version>1.6.5</version>
+        <version>1.7.5</version>
       </dependency>
       <dependency>
         <groupId>commons-logging</groupId>
         <artifactId>commons-logging</artifactId>
-        <version>1.1.1</version>
-      </dependency>
-      <dependency>
-        <groupId>org.jboss.logging</groupId>
-        <artifactId>jboss-logging-spi</artifactId>
-        <version>2.1.2.GA</version>
+        <version>1.1.3</version>
       </dependency>
       <dependency>
         <groupId>log4j</groupId>
@@ -163,6 +186,14 @@
         </exclusions>
         <optional>true</optional>
       </dependency>
+      
+      <!-- Metrics providers -->
+      <dependency>
+        <groupId>com.yammer.metrics</groupId>
+        <artifactId>metrics-core</artifactId>
+        <version>2.2.0</version>
+      </dependency>
+      
       <!-- Test dependencies for jboss marshalling encoder/decoder -->
       <dependency>
         <groupId>org.jboss.marshalling</groupId>
@@ -176,49 +207,63 @@
         <version>${jboss.marshalling.version}</version>
         <scope>test</scope>
       </dependency>
+
+      <!-- Test dependencies for microbench -->
+      <dependency>
+        <groupId>com.google.caliper</groupId>
+        <artifactId>caliper</artifactId>
+        <version>0.5-rc1</version>
+        <scope>test</scope>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
   <dependencies>
+    <!-- Enable Javassist support for all test runs -->
+    <dependency>
+      <groupId>org.javassist</groupId>
+      <artifactId>javassist</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- Testing frameworks and related dependencies -->
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
-      <version>4.10</version>
+      <version>4.11</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.easymock</groupId>
       <artifactId>easymock</artifactId>
-      <version>3.1</version>
+      <version>3.2</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.easymock</groupId>
       <artifactId>easymockclassextension</artifactId>
-      <version>3.1</version>
+      <version>3.2</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.jmock</groupId>
       <artifactId>jmock-junit4</artifactId>
-      <version>2.5.1</version>
+      <version>2.6.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-simple</artifactId>
-      <version>1.6.6</version>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>1.0.13</version>
       <scope>test</scope>
     </dependency>
-    
   </dependencies>
 
   <build>
     <plugins>
       <plugin>
         <artifactId>maven-enforcer-plugin</artifactId>
-        <version>1.1</version>
+        <version>1.3</version>
         <executions>
           <execution>
             <id>enforce-tools</id>
@@ -233,7 +278,7 @@
                   <version>[1.7.0,)</version>
                 </requireJavaVersion>
                 <requireMavenVersion>
-                  <version>[3.0.2,)</version>
+                  <version>[3.0.5,3.1)</version>
                 </requireMavenVersion>
               </rules>
             </configuration>
@@ -242,15 +287,25 @@
       </plugin>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>2.5.1</version>
+        <version>3.1</version>
         <configuration>
-          <encoding>UTF-8</encoding>
+          <compilerVersion>1.7</compilerVersion>
+          <fork>true</fork>
           <source>1.6</source>
           <target>1.6</target>
           <debug>true</debug>
           <optimize>true</optimize>
           <showDeprecation>true</showDeprecation>
           <showWarnings>true</showWarnings>
+          <compilerArgument>-Xlint:-options</compilerArgument>
+          <!-- XXX: maven-release-plugin complains - MRELEASE-715 -->
+          <!--
+          <compilerArguments>
+            <Xlint:-options />
+            <Xlint:unchecked />
+            <Xlint:deprecation />
+          </compilerArguments>
+          -->
         </configuration>
       </plugin>
       <plugin>
@@ -258,7 +313,7 @@
              be used even when compiling with java 1.7+ -->
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>animal-sniffer-maven-plugin</artifactId>
-        <version>1.8</version>
+        <version>1.9</version>
         <configuration>
           <signature>
             <groupId>org.codehaus.mojo.signature</groupId>
@@ -274,7 +329,6 @@
             <!-- Used for NIO UDP multicast -->
             <ignore>java.nio.channels.DatagramChannel</ignore>
             <ignore>java.nio.channels.MembershipKey</ignore>
-            <ignore>java.net.StandardSocketOptions</ignore>
             <ignore>java.net.StandardProtocolFamily</ignore>
 
             <!-- Used for NIO. 2 -->
@@ -284,6 +338,8 @@
             <ignore>java.nio.channels.AsynchronousChannelGroup</ignore>
             <ignore>java.nio.channels.NetworkChannel</ignore>
             <ignore>java.nio.channels.InterruptedByTimeoutException</ignore>
+            <ignore>java.net.StandardSocketOptions</ignore>
+            <ignore>java.net.SocketOption</ignore>
           </ignores>
         </configuration>
         <executions>
@@ -297,7 +353,7 @@
       </plugin>
       <plugin>
         <artifactId>maven-checkstyle-plugin</artifactId>
-        <version>2.9.1</version>
+        <version>2.10</version>
         <executions>
           <execution>
             <id>check-style</id>
@@ -311,6 +367,7 @@
               <failsOnError>true</failsOnError>
               <failOnViolation>true</failOnViolation>
               <configLocation>io/netty/checkstyle.xml</configLocation>
+              <includeTestSourceDirectory>true</includeTestSourceDirectory>
             </configuration>
           </execution>
         </executions>
@@ -318,41 +375,62 @@
           <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>netty-build</artifactId>
-            <version>9</version>
+            <version>19</version>
           </dependency>
         </dependencies>
       </plugin>
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>2.12</version>
         <configuration>
-          <forkMode>once</forkMode>
+          <includes>
+             <include>**/*Test*.java</include>
+             <include>**/*Benchmark*.java</include>
+          </includes>
           <excludes>
             <exclude>**/Abstract*</exclude>
             <exclude>**/TestUtil*</exclude>
           </excludes>
           <runOrder>random</runOrder>
+          <argLine>${test.jvm.argLine}</argLine>
         </configuration>
       </plugin>
+      <!-- always produce osgi bundles -->
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>2.3.7</version>
+        <extensions>true</extensions>
+      </plugin>             
       <plugin>
         <artifactId>maven-source-plugin</artifactId>
-        <version>2.1.2</version>
+        <version>2.2.1</version>
         <executions>
+          <!--
+            ~ This workaround prevents Maven from executing the 'generate-sources' phase twice.
+            ~ See http://jira.codehaus.org/browse/MSOURCES-13
+            ~ and http://blog.peterlynch.ca/2010/05/maven-how-to-prevent-generate-sources.html
+            -->
           <execution>
             <id>attach-sources</id>
+            <phase>invalid</phase>
             <goals>
               <goal>jar</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>attach-sources-no-fork</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
             </goals>
           </execution>
         </executions>
       </plugin>
       <plugin>
         <artifactId>maven-javadoc-plugin</artifactId>
-        <version>2.8.1</version>
+        <version>2.9.1</version>
         <configuration>
           <detectOfflineLinks>false</detectOfflineLinks>
-          <charset>UTF-8</charset>
-          <docencoding>UTF-8</docencoding>
           <breakiterator>true</breakiterator>
           <version>false</version>
           <author>false</author>
@@ -368,20 +446,80 @@
       </plugin>
       <plugin>
         <artifactId>maven-release-plugin</artifactId>
-        <version>2.3.2</version>
+        <version>2.4.1</version>
         <configuration>
           <useReleaseProfile>false</useReleaseProfile>
-          <arguments>-P release,sonatype-oss-release,full</arguments>
+          <arguments>-P release,sonatype-oss-release,full,no-osgi</arguments>
           <autoVersionSubmodules>true</autoVersionSubmodules>
+          <allowTimestampedSnapshots>false</allowTimestampedSnapshots>
           <tagNameFormat>netty-@{project.version}</tagNameFormat>
         </configuration>
       </plugin>
+      
     </plugins>
 
-    <!-- Workaround for the 'M2E plugin execution not covered' problem.
-         See: http://wiki.eclipse.org/M2E_plugin_execution_not_covered -->
     <pluginManagement>
       <plugins>
+        <!-- keep surefire and failsafe in sync -->
+        <plugin>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>2.15</version>
+        </plugin>
+        <!-- keep surefire and failsafe in sync -->
+        <plugin>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>2.15</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>2.5</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>2.6</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>2.4</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>2.8</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>2.4</version>
+        </plugin>
+        <plugin>
+          <!-- Do NOT upgrade -->
+          <artifactId>maven-jxr-plugin</artifactId>
+          <version>2.2</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-antrun-plugin</artifactId>
+          <version>1.7</version>
+          <dependencies>
+            <dependency>
+              <groupId>ant-contrib</groupId>
+              <artifactId>ant-contrib</artifactId>
+              <version>1.0b3</version>
+              <exclusions>
+                <exclusion>
+                  <groupId>ant</groupId>
+                  <artifactId>ant</artifactId>
+                </exclusion>
+              </exclusions>
+            </dependency>
+          </dependencies>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>1.8</version>
+        </plugin>               
+
+        <!-- Workaround for the 'M2E plugin execution not covered' problem.
+             See: http://wiki.eclipse.org/M2E_plugin_execution_not_covered -->
         <plugin>
           <groupId>org.eclipse.m2e</groupId>
           <artifactId>lifecycle-mapping</artifactId>

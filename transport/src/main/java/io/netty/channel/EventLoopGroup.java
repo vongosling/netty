@@ -15,6 +15,8 @@
  */
 package io.netty.channel;
 
+import io.netty.util.concurrent.EventExecutorGroup;
+
 /**
  * Special {@link EventExecutorGroup} which allows to register {@link Channel}'s that get
  * processed for later selection during the event loop.
@@ -37,5 +39,5 @@ public interface EventLoopGroup extends EventExecutorGroup {
      * Register a {@link Channel} with this {@link EventLoop}. The passed {@link ChannelFuture}
      * will get notified once the registration was complete and also will get returned.
      */
-    ChannelFuture register(Channel channel, ChannelFuture future);
+    ChannelFuture register(Channel channel, ChannelPromise promise);
 }

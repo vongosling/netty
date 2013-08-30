@@ -18,6 +18,8 @@ package io.netty.handler.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 
+import java.util.List;
+
 /**
  * A decoder that splits the received {@link ByteBuf}s by one or more
  * delimiters.  It is particularly useful for decoding the frames which ends
@@ -39,7 +41,7 @@ import io.netty.channel.ChannelHandlerContext;
  * | ABC\nDEF\r\n |
  * +--------------+
  * </pre>
- * a {@link DelimiterBasedFrameDecoder}{@code (}{@link Delimiters#lineDelimiter() Delimiters.lineDelimiter()}{@code )}
+ * a {@link DelimiterBasedFrameDecoder}({@link Delimiters#lineDelimiter() Delimiters.lineDelimiter()})
  * will choose {@code '\n'} as the first delimiter and produce two frames:
  * <pre>
  * +-----+-----+
@@ -52,9 +54,8 @@ import io.netty.channel.ChannelHandlerContext;
  * | ABC\nDEF |
  * +----------+
  * </pre>
- * @apiviz.uses io.netty.handler.codec.Delimiters - - useful
  */
-public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder<Object> {
+public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
 
     private final ByteBuf[] delimiters;
     private final int maxFrameLength;
@@ -62,6 +63,8 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder<Object> {
     private final boolean failFast;
     private boolean discardingTooLongFrame;
     private int tooLongFrameLength;
+    /** Set only when decoding with "\n" and "\r\n" as the delimiter.  */
+    private final LineBasedFrameDecoder lineBasedDecoder;
 
     /**
      * Creates a new instance.
@@ -110,15 +113,8 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder<Object> {
     public DelimiterBasedFrameDecoder(
             int maxFrameLength, boolean stripDelimiter, boolean failFast,
             ByteBuf delimiter) {
-        validateMaxFrameLength(maxFrameLength);
-        validateDelimiter(delimiter);
-        delimiters = new ByteBuf[] {
-                delimiter.slice(
-                        delimiter.readerIndex(), delimiter.readableBytes())
-        };
-        this.maxFrameLength = maxFrameLength;
-        this.stripDelimiter = stripDelimiter;
-        this.failFast = failFast;
+        this(maxFrameLength, stripDelimiter, failFast, new ByteBuf[] {
+                delimiter.slice(delimiter.readerIndex(), delimiter.readableBytes())});
     }
 
     /**
@@ -174,19 +170,67 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder<Object> {
         if (delimiters.length == 0) {
             throw new IllegalArgumentException("empty delimiters");
         }
-        this.delimiters = new ByteBuf[delimiters.length];
-        for (int i = 0; i < delimiters.length; i ++) {
-            ByteBuf d = delimiters[i];
-            validateDelimiter(d);
-            this.delimiters[i] = d.slice(d.readerIndex(), d.readableBytes());
+
+        if (isLineBased(delimiters) && !isSubclass()) {
+            lineBasedDecoder = new LineBasedFrameDecoder(maxFrameLength, stripDelimiter, failFast);
+            this.delimiters = null;
+        } else {
+            this.delimiters = new ByteBuf[delimiters.length];
+            for (int i = 0; i < delimiters.length; i ++) {
+                ByteBuf d = delimiters[i];
+                validateDelimiter(d);
+                this.delimiters[i] = d.slice(d.readerIndex(), d.readableBytes());
+            }
+            lineBasedDecoder = null;
         }
         this.maxFrameLength = maxFrameLength;
         this.stripDelimiter = stripDelimiter;
         this.failFast = failFast;
     }
 
+    /** Returns true if the delimiters are "\n" and "\r\n".  */
+    private static boolean isLineBased(final ByteBuf[] delimiters) {
+        if (delimiters.length != 2) {
+            return false;
+        }
+        ByteBuf a = delimiters[0];
+        ByteBuf b = delimiters[1];
+        if (a.capacity() < b.capacity()) {
+            a = delimiters[1];
+            b = delimiters[0];
+        }
+        return a.capacity() == 2 && b.capacity() == 1
+                && a.getByte(0) == '\r' && a.getByte(1) == '\n'
+                && b.getByte(0) == '\n';
+    }
+
+    /**
+     * Return {@code true} if the current instance is a subclass of DelimiterBasedFrameDecoder
+     */
+    private boolean isSubclass() {
+        return getClass() != DelimiterBasedFrameDecoder.class;
+    }
+
     @Override
-    public Object decode(ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+    protected final void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        Object decoded = decode(ctx, in);
+        if (decoded != null) {
+            out.add(decoded);
+        }
+    }
+
+    /**
+     * Create a frame out of the {@link ByteBuf} and return it.
+     *
+     * @param   ctx             the {@link ChannelHandlerContext} which this {@link ByteToMessageDecoder} belongs to
+     * @param   buffer          the {@link ByteBuf} from which to read data
+     * @return  frame           the {@link ByteBuf} which represent the frame or {@code null} if no frame could
+     *                          be created.
+     */
+    protected Object decode(ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+        if (lineBasedDecoder != null) {
+            return lineBasedDecoder.decode(ctx, buffer);
+        }
         // Try all delimiters and choose the delimiter which yields the shortest frame.
         int minFrameLength = Integer.MAX_VALUE;
         ByteBuf minDelim = null;
@@ -298,7 +342,7 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder<Object> {
         if (delimiter == null) {
             throw new NullPointerException("delimiter");
         }
-        if (!delimiter.readable()) {
+        if (!delimiter.isReadable()) {
             throw new IllegalArgumentException("empty delimiter");
         }
     }

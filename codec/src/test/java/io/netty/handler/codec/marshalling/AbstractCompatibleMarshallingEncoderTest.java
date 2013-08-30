@@ -17,46 +17,48 @@ package io.netty.handler.codec.marshalling;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
-import io.netty.channel.embedded.EmbeddedByteChannel;
-
-import java.io.IOException;
-
-import junit.framework.Assert;
-
+import io.netty.channel.embedded.EmbeddedChannel;
 import org.jboss.marshalling.MarshallerFactory;
 import org.jboss.marshalling.Marshalling;
 import org.jboss.marshalling.MarshallingConfiguration;
 import org.jboss.marshalling.Unmarshaller;
 import org.junit.Test;
 
+import java.io.IOException;
+
+import static org.junit.Assert.*;
+
 public abstract class AbstractCompatibleMarshallingEncoderTest {
 
     @Test
     public void testMarshalling() throws IOException, ClassNotFoundException {
+        @SuppressWarnings("RedundantStringConstructorCall")
         String testObject = new String("test");
 
         final MarshallerFactory marshallerFactory = createMarshallerFactory();
         final MarshallingConfiguration configuration = createMarshallingConfig();
 
-        EmbeddedByteChannel ch = new EmbeddedByteChannel(createEncoder());
+        EmbeddedChannel ch = new EmbeddedChannel(createEncoder());
 
         ch.writeOutbound(testObject);
-        Assert.assertTrue(ch.finish());
+        assertTrue(ch.finish());
 
-        ByteBuf buffer = ch.readOutbound();
+        ByteBuf buffer = (ByteBuf) ch.readOutbound();
 
         Unmarshaller unmarshaller = marshallerFactory.createUnmarshaller(configuration);
         unmarshaller.start(Marshalling.createByteInput(truncate(buffer).nioBuffer()));
         String read = (String) unmarshaller.readObject();
-        Assert.assertEquals(testObject, read);
+        assertEquals(testObject, read);
 
-        Assert.assertEquals(-1, unmarshaller.read());
+        assertEquals(-1, unmarshaller.read());
 
-        Assert.assertNull(ch.readOutbound());
+        assertNull(ch.readOutbound());
 
         unmarshaller.finish();
         unmarshaller.close();
+        buffer.release();
     }
+
     protected ByteBuf truncate(ByteBuf buf) {
         return buf;
     }

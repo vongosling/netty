@@ -15,7 +15,9 @@
  */
 package io.netty.handler.codec.protobuf;
 
-import static io.netty.buffer.Unpooled.*;
+import com.google.protobuf.Message;
+import com.google.protobuf.MessageLite;
+import com.google.protobuf.MessageLiteOrBuilder;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
@@ -24,8 +26,9 @@ import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.handler.codec.MessageToMessageEncoder;
 
-import com.google.protobuf.Message;
-import com.google.protobuf.MessageLite;
+import java.util.List;
+
+import static io.netty.buffer.Unpooled.*;
 
 /**
  * Encodes the requested <a href="http://code.google.com/p/protobuf/">Google
@@ -47,31 +50,24 @@ import com.google.protobuf.MessageLite;
  * and then you can use a {@code MyMessage} instead of a {@link ByteBuf}
  * as a message:
  * <pre>
- * void messageReceived({@link ChannelHandlerContext} ctx, {@link MessageEvent} e) {
- *     MyMessage req = (MyMessage) e.getMessage();
+ * void channelRead({@link ChannelHandlerContext} ctx, MyMessage req) {
  *     MyMessage res = MyMessage.newBuilder().setText(
  *                               "Did you say '" + req.getText() + "'?").build();
  *     ch.write(res);
  * }
  * </pre>
- * @apiviz.landmark
  */
 @Sharable
-public class ProtobufEncoder extends MessageToMessageEncoder<Object, ByteBuf> {
-
+public class ProtobufEncoder extends MessageToMessageEncoder<MessageLiteOrBuilder> {
     @Override
-    public boolean isEncodable(Object msg) throws Exception {
-        return msg instanceof MessageLite || msg instanceof MessageLite.Builder;
-    }
-
-    @Override
-    public ByteBuf encode(ChannelHandlerContext ctx, Object msg) throws Exception {
+    protected void encode(
+            ChannelHandlerContext ctx, MessageLiteOrBuilder msg, List<Object> out) throws Exception {
         if (msg instanceof MessageLite) {
-            return wrappedBuffer(((MessageLite) msg).toByteArray());
+            out.add(wrappedBuffer(((MessageLite) msg).toByteArray()));
+            return;
         }
         if (msg instanceof MessageLite.Builder) {
-            return wrappedBuffer(((MessageLite.Builder) msg).build().toByteArray());
+            out.add(wrappedBuffer(((MessageLite.Builder) msg).build().toByteArray()));
         }
-        return null;
     }
 }

@@ -60,6 +60,7 @@ public class UniqueName implements Comparable<UniqueName> {
      *
      * @param args arguments to validate
      */
+    @SuppressWarnings("unused")
     protected void validateArgs(Object... args) {
         // Subclasses will override.
     }
@@ -103,7 +104,7 @@ public class UniqueName implements Comparable<UniqueName> {
             return returnCode;
         }
 
-        return ((Integer) id).compareTo((Integer) other.id);
+        return ((Integer) id).compareTo(other.id);
     }
 
     @Override

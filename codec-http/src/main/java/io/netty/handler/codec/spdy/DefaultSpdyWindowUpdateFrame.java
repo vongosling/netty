@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -42,12 +42,13 @@ public class DefaultSpdyWindowUpdateFrame implements SpdyWindowUpdateFrame {
     }
 
     @Override
-    public void setStreamId(int streamId) {
-        if (streamId <= 0) {
+    public SpdyWindowUpdateFrame setStreamId(int streamId) {
+        if (streamId < 0) {
             throw new IllegalArgumentException(
-                    "Stream-ID must be positive: " + streamId);
+                    "Stream-ID cannot be negative: " + streamId);
         }
         this.streamId = streamId;
+        return this;
     }
 
     @Override
@@ -56,13 +57,14 @@ public class DefaultSpdyWindowUpdateFrame implements SpdyWindowUpdateFrame {
     }
 
     @Override
-    public void setDeltaWindowSize(int deltaWindowSize) {
+    public SpdyWindowUpdateFrame setDeltaWindowSize(int deltaWindowSize) {
         if (deltaWindowSize <= 0) {
             throw new IllegalArgumentException(
                     "Delta-Window-Size must be positive: " +
                     deltaWindowSize);
         }
         this.deltaWindowSize = deltaWindowSize;
+        return this;
     }
 
     @Override
@@ -71,10 +73,10 @@ public class DefaultSpdyWindowUpdateFrame implements SpdyWindowUpdateFrame {
         buf.append(getClass().getSimpleName());
         buf.append(StringUtil.NEWLINE);
         buf.append("--> Stream-ID = ");
-        buf.append(streamId);
+        buf.append(getStreamId());
         buf.append(StringUtil.NEWLINE);
         buf.append("--> Delta-Window-Size = ");
-        buf.append(deltaWindowSize);
+        buf.append(getDeltaWindowSize());
         return buf.toString();
     }
 }

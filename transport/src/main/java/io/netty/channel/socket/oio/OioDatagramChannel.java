@@ -16,18 +16,25 @@
 package io.netty.channel.socket.oio;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ChannelBufType;
-import io.netty.buffer.MessageBuf;
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBufHolder;
+import io.netty.channel.AddressedEnvelope;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelMetadata;
+import io.netty.channel.ChannelOutboundBuffer;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.RecvByteBufAllocator;
+import io.netty.channel.oio.AbstractOioMessageChannel;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.DatagramChannelConfig;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.DefaultDatagramChannelConfig;
-import io.netty.logging.InternalLogger;
-import io.netty.logging.InternalLoggerFactory;
+import io.netty.util.internal.EmptyArrays;
+import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.StringUtil;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -37,20 +44,28 @@ import java.net.NetworkInterface;
 import java.net.SocketAddress;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.util.List;
 import java.util.Locale;
 
+/**
+ * An OIO datagram {@link Channel} that sends and receives an
+ * {@link AddressedEnvelope AddressedEnvelope<ByteBuf, SocketAddress>}.
+ *
+ * @see AddressedEnvelope
+ * @see DatagramPacket
+ */
 public class OioDatagramChannel extends AbstractOioMessageChannel
                                 implements DatagramChannel {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(OioDatagramChannel.class);
 
-    private static final ChannelMetadata METADATA = new ChannelMetadata(ChannelBufType.MESSAGE, true);
-
-    private static final byte[] EMPTY_DATA = new byte[0];
+    private static final ChannelMetadata METADATA = new ChannelMetadata(true);
 
     private final MulticastSocket socket;
     private final DatagramChannelConfig config;
-    private final java.net.DatagramPacket tmpPacket = new java.net.DatagramPacket(EMPTY_DATA, 0);
+    private final java.net.DatagramPacket tmpPacket = new java.net.DatagramPacket(EmptyArrays.EMPTY_BYTES, 0);
+
+    private RecvByteBufAllocator.Handle allocHandle;
 
     private static MulticastSocket newSocket() {
         try {
@@ -60,16 +75,20 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
         }
     }
 
+    /**
+     * Create a new instance with an new {@link MulticastSocket}.
+     */
     public OioDatagramChannel() {
         this(newSocket());
     }
 
+    /**
+     * Create a new instance from the given {@link MulticastSocket}.
+     *
+     * @param socket    the {@link MulticastSocket} which is used by this instance
+     */
     public OioDatagramChannel(MulticastSocket socket) {
-        this(null, socket);
-    }
-
-    public OioDatagramChannel(Integer id, MulticastSocket socket) {
-        super(null, id);
+        super(null);
 
         boolean success = false;
         try {
@@ -86,7 +105,7 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
         }
 
         this.socket = socket;
-        config = new DefaultDatagramChannelConfig(socket);
+        config = new DefaultDatagramChannelConfig(this, socket);
     }
 
     @Override
@@ -130,6 +149,16 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
     }
 
     @Override
+    public InetSocketAddress localAddress() {
+        return (InetSocketAddress) super.localAddress();
+    }
+
+    @Override
+    public InetSocketAddress remoteAddress() {
+        return (InetSocketAddress) super.remoteAddress();
+    }
+
+    @Override
     protected void doConnect(SocketAddress remoteAddress,
             SocketAddress localAddress) throws Exception {
         if (localAddress != null) {
@@ -162,33 +191,29 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
     }
 
     @Override
-    protected int doReadMessages(MessageBuf<Object> buf) throws Exception {
-        if (readSuspended) {
-            try {
-                Thread.sleep(SO_TIMEOUT);
-            } catch (InterruptedException e) {
-                // ignore;
-            }
-            return 0;
+    protected int doReadMessages(List<Object> buf) throws Exception {
+        DatagramChannelConfig config = config();
+        RecvByteBufAllocator.Handle allocHandle = this.allocHandle;
+        if (allocHandle == null) {
+            this.allocHandle = allocHandle = config.getRecvByteBufAllocator().newHandle();
         }
 
-        int packetSize = config().getReceivePacketSize();
-        byte[] data = new byte[packetSize];
-        tmpPacket.setData(data);
+        ByteBuf data = config.getAllocator().heapBuffer(allocHandle.guess());
+        boolean free = true;
         try {
+            tmpPacket.setData(data.array(), data.arrayOffset(), data.capacity());
             socket.receive(tmpPacket);
+
             InetSocketAddress remoteAddr = (InetSocketAddress) tmpPacket.getSocketAddress();
             if (remoteAddr == null) {
                 remoteAddr = remoteAddress();
             }
-            buf.add(new DatagramPacket(Unpooled.wrappedBuffer(
-                    data, tmpPacket.getOffset(), tmpPacket.getLength()), remoteAddr));
 
-            if (readSuspended) {
-                return 0;
-            } else {
-                return 1;
-            }
+            int readBytes = tmpPacket.getLength();
+            allocHandle.record(readBytes);
+            buf.add(new DatagramPacket(data.writerIndex(readBytes), localAddress(), remoteAddr));
+            free = false;
+            return 1;
         } catch (SocketTimeoutException e) {
             // Expected
             return 0;
@@ -197,60 +222,95 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
                 throw e;
             }
             return -1;
+        } catch (Throwable cause) {
+            PlatformDependent.throwException(cause);
+            return -1;
+        } finally {
+            if (free) {
+                data.release();
+            }
         }
     }
 
     @Override
-    protected void doWriteMessages(MessageBuf<Object> buf) throws Exception {
-        DatagramPacket p = (DatagramPacket) buf.poll();
-        ByteBuf data = p.data();
-        int length = data.readableBytes();
-        tmpPacket.setSocketAddress(p.remoteAddress());
-        if (data.hasArray()) {
-            tmpPacket.setData(data.array(), data.arrayOffset() + data.readerIndex(), length);
-        } else {
-            byte[] tmp = new byte[length];
-            data.getBytes(data.readerIndex(), tmp);
-            tmpPacket.setData(tmp);
-        }
+    protected void doWrite(ChannelOutboundBuffer in) throws Exception {
+        for (;;) {
+            final Object o = in.current();
+            if (o == null) {
+                break;
+            }
 
-        socket.send(tmpPacket);
+            final Object m;
+            final ByteBuf data;
+            final SocketAddress remoteAddress;
+            if (o instanceof AddressedEnvelope) {
+                @SuppressWarnings("unchecked")
+                AddressedEnvelope<Object, SocketAddress> envelope = (AddressedEnvelope<Object, SocketAddress>) o;
+                remoteAddress = envelope.recipient();
+                m = envelope.content();
+            } else {
+                m = o;
+                remoteAddress = null;
+            }
+
+            if (m instanceof ByteBufHolder) {
+                data = ((ByteBufHolder) m).content();
+            } else if (m instanceof ByteBuf) {
+                data = (ByteBuf) m;
+            } else {
+                throw new UnsupportedOperationException("unsupported message type: " + StringUtil.simpleClassName(o));
+            }
+
+            int length = data.readableBytes();
+            if (remoteAddress != null) {
+                tmpPacket.setSocketAddress(remoteAddress);
+            }
+            if (data.hasArray()) {
+                tmpPacket.setData(data.array(), data.arrayOffset() + data.readerIndex(), length);
+            } else {
+                byte[] tmp = new byte[length];
+                data.getBytes(data.readerIndex(), tmp);
+                tmpPacket.setData(tmp);
+            }
+            socket.send(tmpPacket);
+            in.remove();
+        }
     }
 
     @Override
     public ChannelFuture joinGroup(InetAddress multicastAddress) {
-        return joinGroup(multicastAddress, newFuture());
+        return joinGroup(multicastAddress, newPromise());
     }
 
     @Override
-    public ChannelFuture joinGroup(InetAddress multicastAddress, ChannelFuture future) {
+    public ChannelFuture joinGroup(InetAddress multicastAddress, ChannelPromise promise) {
         ensureBound();
         try {
             socket.joinGroup(multicastAddress);
-            future.setSuccess();
+            promise.setSuccess();
         } catch (IOException e) {
-            future.setFailure(e);
+            promise.setFailure(e);
         }
-        return future;
+        return promise;
     }
 
     @Override
     public ChannelFuture joinGroup(InetSocketAddress multicastAddress, NetworkInterface networkInterface) {
-        return joinGroup(multicastAddress, networkInterface, newFuture());
+        return joinGroup(multicastAddress, networkInterface, newPromise());
     }
 
     @Override
     public ChannelFuture joinGroup(
             InetSocketAddress multicastAddress, NetworkInterface networkInterface,
-            ChannelFuture future) {
+            ChannelPromise promise) {
         ensureBound();
         try {
             socket.joinGroup(multicastAddress, networkInterface);
-            future.setSuccess();
+            promise.setSuccess();
         } catch (IOException e) {
-            future.setFailure(e);
+            promise.setFailure(e);
         }
-        return future;
+        return promise;
     }
 
     @Override
@@ -262,9 +322,9 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
     @Override
     public ChannelFuture joinGroup(
             InetAddress multicastAddress, NetworkInterface networkInterface, InetAddress source,
-            ChannelFuture future) {
-        future.setFailure(new UnsupportedOperationException());
-        return future;
+            ChannelPromise promise) {
+        promise.setFailure(new UnsupportedOperationException());
+        return promise;
     }
 
     private void ensureBound() {
@@ -277,37 +337,37 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
 
     @Override
     public ChannelFuture leaveGroup(InetAddress multicastAddress) {
-        return leaveGroup(multicastAddress, newFuture());
+        return leaveGroup(multicastAddress, newPromise());
     }
 
     @Override
-    public ChannelFuture leaveGroup(InetAddress multicastAddress, ChannelFuture future) {
+    public ChannelFuture leaveGroup(InetAddress multicastAddress, ChannelPromise promise) {
         try {
             socket.leaveGroup(multicastAddress);
-            future.setSuccess();
+            promise.setSuccess();
         } catch (IOException e) {
-            future.setFailure(e);
+            promise.setFailure(e);
         }
-        return future;
+        return promise;
     }
 
     @Override
     public ChannelFuture leaveGroup(
             InetSocketAddress multicastAddress, NetworkInterface networkInterface) {
-        return leaveGroup(multicastAddress, networkInterface, newFuture());
+        return leaveGroup(multicastAddress, networkInterface, newPromise());
     }
 
     @Override
     public ChannelFuture leaveGroup(
             InetSocketAddress multicastAddress, NetworkInterface networkInterface,
-            ChannelFuture future) {
+            ChannelPromise promise) {
         try {
             socket.leaveGroup(multicastAddress, networkInterface);
-            future.setSuccess();
+            promise.setSuccess();
         } catch (IOException e) {
-            future.setFailure(e);
+            promise.setFailure(e);
         }
-        return future;
+        return promise;
     }
 
     @Override
@@ -319,9 +379,9 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
     @Override
     public ChannelFuture leaveGroup(
             InetAddress multicastAddress, NetworkInterface networkInterface, InetAddress source,
-            ChannelFuture future) {
-        future.setFailure(new UnsupportedOperationException());
-        return future;
+            ChannelPromise promise) {
+        promise.setFailure(new UnsupportedOperationException());
+        return promise;
     }
 
     @Override
@@ -333,9 +393,9 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
     @Override
     public ChannelFuture block(InetAddress multicastAddress,
             NetworkInterface networkInterface, InetAddress sourceToBlock,
-            ChannelFuture future) {
-        future.setFailure(new UnsupportedOperationException());
-        return future;
+            ChannelPromise promise) {
+        promise.setFailure(new UnsupportedOperationException());
+        return promise;
     }
 
     @Override
@@ -346,8 +406,8 @@ public class OioDatagramChannel extends AbstractOioMessageChannel
 
     @Override
     public ChannelFuture block(InetAddress multicastAddress,
-            InetAddress sourceToBlock, ChannelFuture future) {
-        future.setFailure(new UnsupportedOperationException());
-        return future;
+            InetAddress sourceToBlock, ChannelPromise promise) {
+        promise.setFailure(new UnsupportedOperationException());
+        return promise;
     }
 }

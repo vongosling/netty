@@ -15,24 +15,22 @@
  */
 package io.netty.example.http.websocketx.sslserver;
 
-import io.netty.logging.InternalLogger;
-import io.netty.logging.InternalLoggerFactory;
-
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 import java.io.FileInputStream;
 import java.security.KeyStore;
 import java.security.Security;
-
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Creates a {@link SSLContext} for just server certificates.
  */
 public final class WebSocketSslServerSslContext {
 
-    private static final InternalLogger logger = InternalLoggerFactory.getInstance(WebSocketSslServerSslContext.class);
+    private static final Logger logger = Logger.getLogger(WebSocketSslServerSslContext.class.getName());
     private static final String PROTOCOL = "TLS";
-    private SSLContext _serverContext;
+    private final SSLContext _serverContext;
 
     /**
      * Returns the singleton instance for this class
@@ -47,14 +45,15 @@ public final class WebSocketSslServerSslContext {
      *
      * See http://en.wikipedia.org/wiki/Singleton_pattern
      */
-    private static class SingletonHolder {
-        public static final WebSocketSslServerSslContext INSTANCE = new WebSocketSslServerSslContext();
+    private interface SingletonHolder {
+        WebSocketSslServerSslContext INSTANCE = new WebSocketSslServerSslContext();
     }
 
     /**
      * Constructor for singleton
      */
     private WebSocketSslServerSslContext() {
+        SSLContext serverContext = null;
         try {
             // Key store (Server side certificate)
             String algorithm = Security.getProperty("ssl.KeyManagerFactory.algorithm");
@@ -62,7 +61,6 @@ public final class WebSocketSslServerSslContext {
                 algorithm = "SunX509";
             }
 
-            SSLContext serverContext;
             try {
                 String keyStoreFilePath = System.getProperty("keystore.file.path");
                 String keyStoreFilePassword = System.getProperty("keystore.file.password");
@@ -83,20 +81,18 @@ public final class WebSocketSslServerSslContext {
             } catch (Exception e) {
                 throw new Error("Failed to initialize the server-side SSLContext", e);
             }
-            _serverContext = serverContext;
         } catch (Exception ex) {
-            if (logger.isErrorEnabled()) {
-                logger.error("Error initializing SslContextManager. " + ex.getMessage(), ex);
-            }
+            logger.log(Level.WARNING, "Error initializing SslContextManager.", ex);
             System.exit(1);
-
+        } finally {
+            _serverContext = serverContext;
         }
     }
 
     /**
      * Returns the server context with server side key store
      */
-    public SSLContext getServerContext() {
+    public SSLContext serverContext() {
         return _serverContext;
     }
 

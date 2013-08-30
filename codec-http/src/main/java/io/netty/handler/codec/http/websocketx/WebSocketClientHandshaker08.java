@@ -15,24 +15,20 @@
  */
 package io.netty.handler.codec.http.websocketx;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.handler.codec.http.DefaultHttpRequest;
+import io.netty.handler.codec.http.DefaultFullHttpRequest;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpHeaders.Names;
 import io.netty.handler.codec.http.HttpHeaders.Values;
 import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.HttpRequestEncoder;
-import io.netty.handler.codec.http.HttpResponse;
-import io.netty.handler.codec.http.HttpResponseDecoder;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
-import io.netty.logging.InternalLogger;
-import io.netty.logging.InternalLoggerFactory;
 import io.netty.util.CharsetUtil;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.net.URI;
-import java.util.Map;
 
 /**
  * <p>
@@ -69,7 +65,7 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
      *            Maximum length of a frame's payload
      */
     public WebSocketClientHandshaker08(URI webSocketURL, WebSocketVersion version, String subprotocol,
-            boolean allowExtensions, Map<String, String> customHeaders, int maxFramePayloadLength) {
+            boolean allowExtensions, HttpHeaders customHeaders, int maxFramePayloadLength) {
         super(webSocketURL, version, subprotocol, customHeaders, maxFramePayloadLength);
         this.allowExtensions = allowExtensions;
     }
@@ -91,16 +87,18 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
      * Sec-WebSocket-Version: 8
      * </pre>
      *
-     * @param channel
-     *            Channel into which we can write our request
      */
     @Override
-    public ChannelFuture handshake(Channel channel) {
+    protected FullHttpRequest newHandshakeRequest() {
         // Get path
-        URI wsURL = getWebSocketUrl();
+        URI wsURL = uri();
         String path = wsURL.getPath();
-        if (wsURL.getQuery() != null && wsURL.getQuery().length() > 0) {
-            path = wsURL.getPath() + "?" + wsURL.getQuery();
+        if (wsURL.getQuery() != null && !wsURL.getQuery().isEmpty()) {
+            path = wsURL.getPath() + '?' + wsURL.getQuery();
+        }
+
+        if (path == null || path.isEmpty()) {
+            path = "/";
         }
 
         // Get 16 bit nonce and base 64 encode it
@@ -117,39 +115,34 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
         }
 
         // Format request
-        HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, path);
-        request.addHeader(Names.UPGRADE, Values.WEBSOCKET.toLowerCase());
-        request.addHeader(Names.CONNECTION, Values.UPGRADE);
-        request.addHeader(Names.SEC_WEBSOCKET_KEY, key);
-        request.addHeader(Names.HOST, wsURL.getHost());
+        FullHttpRequest request = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, path);
+        HttpHeaders headers = request.headers();
+
+        headers.add(Names.UPGRADE, Values.WEBSOCKET.toLowerCase())
+               .add(Names.CONNECTION, Values.UPGRADE)
+               .add(Names.SEC_WEBSOCKET_KEY, key)
+               .add(Names.HOST, wsURL.getHost());
 
         int wsPort = wsURL.getPort();
         String originValue = "http://" + wsURL.getHost();
         if (wsPort != 80 && wsPort != 443) {
             // if the port is not standard (80/443) its needed to add the port to the header.
             // See http://tools.ietf.org/html/rfc6454#section-6.2
-            originValue = originValue + ":" + wsPort;
+            originValue = originValue + ':' + wsPort;
         }
-        request.addHeader(Names.SEC_WEBSOCKET_ORIGIN, originValue);
+        headers.add(Names.SEC_WEBSOCKET_ORIGIN, originValue);
 
-        String expectedSubprotocol = getExpectedSubprotocol();
-        if (expectedSubprotocol != null && !expectedSubprotocol.equals("")) {
-            request.addHeader(Names.SEC_WEBSOCKET_PROTOCOL, expectedSubprotocol);
+        String expectedSubprotocol = expectedSubprotocol();
+        if (expectedSubprotocol != null && !expectedSubprotocol.isEmpty()) {
+            headers.add(Names.SEC_WEBSOCKET_PROTOCOL, expectedSubprotocol);
         }
 
-        request.addHeader(Names.SEC_WEBSOCKET_VERSION, "8");
+        headers.add(Names.SEC_WEBSOCKET_VERSION, "8");
 
         if (customHeaders != null) {
-            for (String header : customHeaders.keySet()) {
-                request.addHeader(header, customHeaders.get(header));
-            }
+            headers.add(customHeaders);
         }
-
-        ChannelFuture future = channel.write(request);
-
-        channel.pipeline().replace(HttpRequestEncoder.class, "ws-encoder", new WebSocket08FrameEncoder(true));
-
-        return future;
+        return request;
     }
 
     /**
@@ -165,45 +158,43 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
      * Sec-WebSocket-Protocol: chat
      * </pre>
      *
-     * @param channel
-     *            Channel
      * @param response
      *            HTTP response returned from the server for the request sent by beginOpeningHandshake00().
      * @throws WebSocketHandshakeException
      */
     @Override
-    public void finishHandshake(Channel channel, HttpResponse response) {
+    protected void verify(FullHttpResponse response) {
         final HttpResponseStatus status = HttpResponseStatus.SWITCHING_PROTOCOLS;
+        final HttpHeaders headers = response.headers();
 
         if (!response.getStatus().equals(status)) {
-            throw new WebSocketHandshakeException("Invalid handshake response status: " + response.getStatus());
+            throw new WebSocketHandshakeException("Invalid handshake response getStatus: " + response.getStatus());
         }
 
-        String upgrade = response.getHeader(Names.UPGRADE);
-        if (upgrade == null || !upgrade.equalsIgnoreCase(Values.WEBSOCKET)) {
-            throw new WebSocketHandshakeException("Invalid handshake response upgrade: "
-                    + response.getHeader(Names.UPGRADE));
+        String upgrade = headers.get(Names.UPGRADE);
+        if (!Values.WEBSOCKET.equalsIgnoreCase(upgrade)) {
+            throw new WebSocketHandshakeException("Invalid handshake response upgrade: " + upgrade);
         }
 
-        String connection = response.getHeader(Names.CONNECTION);
-        if (connection == null || !connection.equalsIgnoreCase(Values.UPGRADE)) {
-            throw new WebSocketHandshakeException("Invalid handshake response connection: "
-                    + response.getHeader(Names.CONNECTION));
+        String connection = headers.get(Names.CONNECTION);
+        if (!Values.UPGRADE.equalsIgnoreCase(connection)) {
+            throw new WebSocketHandshakeException("Invalid handshake response connection: " + connection);
         }
 
-        String accept = response.getHeader(Names.SEC_WEBSOCKET_ACCEPT);
+        String accept = headers.get(Names.SEC_WEBSOCKET_ACCEPT);
         if (accept == null || !accept.equals(expectedChallengeResponseString)) {
-            throw new WebSocketHandshakeException(String.format("Invalid challenge. Actual: %s. Expected: %s", accept,
-                    expectedChallengeResponseString));
+            throw new WebSocketHandshakeException(String.format(
+                    "Invalid challenge. Actual: %s. Expected: %s", accept, expectedChallengeResponseString));
         }
+    }
 
-        String subprotocol = response.getHeader(Names.SEC_WEBSOCKET_PROTOCOL);
-        setActualSubprotocol(subprotocol);
+    @Override
+    protected WebSocketFrameDecoder newWebsocketDecoder() {
+        return new WebSocket08FrameDecoder(false, allowExtensions, maxFramePayloadLength());
+    }
 
-        setHandshakeComplete();
-
-        channel.pipeline().get(HttpResponseDecoder.class).replace(
-                "ws-decoder",
-                new WebSocket08FrameDecoder(false, allowExtensions, getMaxFramePayloadLength()));
+    @Override
+    protected WebSocketFrameEncoder newWebSocketEncoder() {
+        return new WebSocket08FrameEncoder(true);
     }
 }

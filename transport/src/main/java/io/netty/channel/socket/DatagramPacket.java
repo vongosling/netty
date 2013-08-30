@@ -16,36 +16,51 @@
 package io.netty.channel.socket;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufHolder;
+import io.netty.channel.DefaultAddressedEnvelope;
 
 import java.net.InetSocketAddress;
 
-public class DatagramPacket {
+/**
+ * The message container that is used for {@link DatagramChannel} to communicate with the remote peer.
+ */
+public final class DatagramPacket
+        extends DefaultAddressedEnvelope<ByteBuf, InetSocketAddress> implements ByteBufHolder {
 
-    private final ByteBuf data;
-    private final InetSocketAddress remoteAddress;
-
-    public DatagramPacket(ByteBuf data, InetSocketAddress remoteAddress) {
-        if (data == null) {
-            throw new NullPointerException("data");
-        }
-        if (remoteAddress == null) {
-            throw new NullPointerException("remoteAddress");
-        }
-
-        this.data = data;
-        this.remoteAddress = remoteAddress;
+    /**
+     * Create a new instance with the specified packet {@code data} and {@code recipient} address.
+     */
+    public DatagramPacket(ByteBuf data, InetSocketAddress recipient) {
+        super(data, recipient);
     }
 
-    public ByteBuf data() {
-        return data;
-    }
-
-    public InetSocketAddress remoteAddress() {
-        return remoteAddress;
+    /**
+     * Create a new instance with the specified packet {@code data}, {@code recipient} address, and {@code sender}
+     * address.
+     */
+    public DatagramPacket(ByteBuf data, InetSocketAddress recipient, InetSocketAddress sender) {
+        super(data, recipient, sender);
     }
 
     @Override
-    public String toString() {
-        return "datagram(" + data.readableBytes() + "B, " + remoteAddress + ')';
+    public DatagramPacket copy() {
+        return new DatagramPacket(content().copy(), recipient(), sender());
+    }
+
+    @Override
+    public DatagramPacket duplicate() {
+        return new DatagramPacket(content().duplicate(), recipient(), sender());
+    }
+
+    @Override
+    public DatagramPacket retain() {
+        super.retain();
+        return this;
+    }
+
+    @Override
+    public DatagramPacket retain(int increment) {
+        super.retain(increment);
+        return this;
     }
 }

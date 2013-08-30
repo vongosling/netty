@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -17,11 +17,14 @@ package io.netty.channel.group;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufHolder;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ServerChannel;
 import io.netty.util.CharsetUtil;
+import io.netty.util.concurrent.GlobalEventExecutor;
 
 import java.util.Set;
 
@@ -39,7 +42,8 @@ import java.util.Set;
  * If you need to broadcast a message to more than one {@link Channel}, you can
  * add the {@link Channel}s associated with the recipients and call {@link ChannelGroup#write(Object)}:
  * <pre>
- * <strong>{@link ChannelGroup} recipients = new {@link DefaultChannelGroup}();</strong>
+ * <strong>{@link ChannelGroup} recipients =
+ *         new {@link DefaultChannelGroup}({@link GlobalEventExecutor}.INSTANCE);</strong>
  * recipients.add(channelA);
  * recipients.add(channelB);
  * ..
@@ -57,15 +61,17 @@ import java.util.Set;
  * This rule is very useful when you shut down a server in one shot:
  *
  * <pre>
- * <strong>{@link ChannelGroup} allChannels = new {@link DefaultChannelGroup}();</strong>
+ * <strong>{@link ChannelGroup} allChannels =
+ *         new {@link DefaultChannelGroup}({@link GlobalEventExecutor}.INSTANCE);</strong>
  *
  * public static void main(String[] args) throws Exception {
  *     {@link ServerBootstrap} b = new {@link ServerBootstrap}(..);
  *     ...
+ *     b.childHandler(new MyHandler());
  *
  *     // Start the server
  *     b.getPipeline().addLast("handler", new MyHandler());
- *     {@link Channel} serverChannel = b.bind(..);
+ *     {@link Channel} serverChannel = b.bind(..).sync();
  *     <strong>allChannels.add(serverChannel);</strong>
  *
  *     ... Wait until the shutdown signal reception ...
@@ -75,17 +81,15 @@ import java.util.Set;
  *     b.releaseExternalResources();
  * }
  *
- * public class MyHandler extends {@link SimpleChannelUpstreamHandler} {
+ * public class MyHandler extends {@link ChannelInboundHandlerAdapter} {
  *     {@code @Override}
- *     public void channelOpen({@link ChannelHandlerContext} ctx, {@link ChannelStateEvent} e) {
- *         // Add all open channels to the global group so that they are
+ *     public void channelActive({@link ChannelHandlerContext} ctx) {
  *         // closed on shutdown.
- *         <strong>allChannels.add(e.getChannel());</strong>
+ *         <strong>allChannels.add(ctx.channel());</strong>
+ *         super.channelActive(ctx);
  *     }
  * }
  * </pre>
- * @apiviz.landmark
- * @apiviz.has io.netty.channel.group.ChannelGroupFuture oneway - - returns
  */
 public interface ChannelGroup extends Set<Channel>, Comparable<ChannelGroup> {
 
@@ -96,15 +100,33 @@ public interface ChannelGroup extends Set<Channel>, Comparable<ChannelGroup> {
     String name();
 
     /**
-     * Returns the {@link Channel} whose ID matches the specified integer.
+     * Writes the specified {@code message} to all {@link Channel}s in this
+     * group. If the specified {@code message} is an instance of
+     * {@link ByteBuf}, it is automatically
+     * {@linkplain ByteBuf#duplicate() duplicated} to avoid a race
+     * condition. The same is true for {@link ByteBufHolder}. Please note that this operation is asynchronous as
+     * {@link Channel#write(Object)} is.
      *
-     * @return the matching {@link Channel} if found. {@code null} otherwise.
+     * @return itself
      */
-    Channel find(Integer id);
+    ChannelGroupFuture write(Object message);
 
     /**
      * Writes the specified {@code message} to all {@link Channel}s in this
-     * group. If the specified {@code message} is an instance of
+     * group that match the given {@link ChannelMatcher}. If the specified {@code message} is an instance of
+     * {@link ByteBuf}, it is automatically
+     * {@linkplain ByteBuf#duplicate() duplicated} to avoid a race
+     * condition. The same is true for {@link ByteBufHolder}. Please note that this operation is asynchronous as
+     * {@link Channel#write(Object)} is.
+     *
+     * @return the {@link ChannelGroupFuture} instance that notifies when
+     *         the operation is done for all channels
+     */
+    ChannelGroupFuture write(Object message, ChannelMatcher matcher);
+
+    /**
+     * Flush all {@link Channel}s in this
+     * group. If the specified {@code messages} are an instance of
      * {@link ByteBuf}, it is automatically
      * {@linkplain ByteBuf#duplicate() duplicated} to avoid a race
      * condition. Please note that this operation is asynchronous as
@@ -113,7 +135,31 @@ public interface ChannelGroup extends Set<Channel>, Comparable<ChannelGroup> {
      * @return the {@link ChannelGroupFuture} instance that notifies when
      *         the operation is done for all channels
      */
-    ChannelGroupFuture write(Object message);
+    ChannelGroup flush();
+
+    /**
+     * Flush all {@link Channel}s in this group that match the given {@link ChannelMatcher}.
+     * If the specified {@code messages} are an instance of
+     * {@link ByteBuf}, it is automatically
+     * {@linkplain ByteBuf#duplicate() duplicated} to avoid a race
+     * condition. Please note that this operation is asynchronous as
+     * {@link Channel#write(Object)} is.
+     *
+     * @return the {@link ChannelGroupFuture} instance that notifies when
+     *         the operation is done for all channels
+     */
+    ChannelGroup flush(ChannelMatcher matcher);
+
+    /**
+     * Shortcut for calling {@link #write(Object)} and {@link #flush()}.
+     */
+    ChannelGroupFuture flushAndWrite(Object message);
+
+    /**
+     * Shortcut for calling {@link #write(Object)} and {@link #flush()} and only act on
+     * {@link Channel}s that match the {@link ChannelMatcher}.
+     */
+    ChannelGroupFuture flushAndWrite(Object message, ChannelMatcher matcher);
 
     /**
      * Disconnects all {@link Channel}s in this group from their remote peers.
@@ -124,6 +170,15 @@ public interface ChannelGroup extends Set<Channel>, Comparable<ChannelGroup> {
     ChannelGroupFuture disconnect();
 
     /**
+     * Disconnects all {@link Channel}s in this group from their remote peers,
+     * that match the given {@link ChannelMatcher}.
+     *
+     * @return the {@link ChannelGroupFuture} instance that notifies when
+     *         the operation is done for all channels
+     */
+    ChannelGroupFuture disconnect(ChannelMatcher matcher);
+
+    /**
      * Closes all {@link Channel}s in this group.  If the {@link Channel} is
      * connected to a remote peer or bound to a local address, it is
      * automatically disconnected and unbound.
@@ -132,4 +187,14 @@ public interface ChannelGroup extends Set<Channel>, Comparable<ChannelGroup> {
      *         the operation is done for all channels
      */
     ChannelGroupFuture close();
+
+    /**
+     * Closes all {@link Channel}s in this group that match the given {@link ChannelMatcher}.
+     * If the {@link Channel} is  connected to a remote peer or bound to a local address, it is
+     * automatically disconnected and unbound.
+     *
+     * @return the {@link ChannelGroupFuture} instance that notifies when
+     *         the operation is done for all channels
+     */
+    ChannelGroupFuture close(ChannelMatcher matcher);
 }

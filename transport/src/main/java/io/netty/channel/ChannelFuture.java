@@ -15,8 +15,13 @@
  */
 package io.netty.channel;
 
-import java.util.concurrent.Future;
+import io.netty.bootstrap.Bootstrap;
+import io.netty.util.concurrent.BlockingOperationException;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GenericFutureListener;
+
 import java.util.concurrent.TimeUnit;
+
 
 /**
  * The result of an asynchronous {@link Channel} I/O operation.
@@ -45,8 +50,8 @@ import java.util.concurrent.TimeUnit;
  * +--------------------------+    |    | Completed with failure    |
  * |      isDone() = <b>false</b>    |    |    +---------------------------+
  * |   isSuccess() = false    |----+---->   isDone() = <b>true</b>         |
- * | isCancelled() = false    |    |    | getCause() = <b>non-null</b>     |
- * |    getCause() = null     |    |    +===========================+
+ * | isCancelled() = false    |    |    | cause() = <b>non-null</b>     |
+ * |    cause() = null     |    |    +===========================+
  * +--------------------------+    |    | Completed by cancellation |
  *                                 |    +---------------------------+
  *                                 +---->      isDone() = <b>true</b>      |
@@ -59,13 +64,13 @@ import java.util.concurrent.TimeUnit;
  * operation. It also allows you to add {@link ChannelFutureListener}s so you
  * can get notified when the I/O operation is completed.
  *
- * <h3>Prefer {@link #addListener(ChannelFutureListener)} to {@link #await()}</h3>
+ * <h3>Prefer {@link #addListener(GenericFutureListener)} to {@link #await()}</h3>
  *
- * It is recommended to prefer {@link #addListener(ChannelFutureListener)} to
+ * It is recommended to prefer {@link #addListener(GenericFutureListener)} to
  * {@link #await()} wherever possible to get notified when an I/O operation is
  * done and to do any follow-up tasks.
  * <p>
- * {@link #addListener(ChannelFutureListener)} is non-blocking.  It simply adds
+ * {@link #addListener(GenericFutureListener)} is non-blocking.  It simply adds
  * the specified {@link ChannelFutureListener} to the {@link ChannelFuture}, and
  * I/O thread will notify the listeners when the I/O operation associated with
  * the future is done.  {@link ChannelFutureListener} yields the best
@@ -90,34 +95,30 @@ import java.util.concurrent.TimeUnit;
  * <pre>
  * // BAD - NEVER DO THIS
  * {@code @Override}
- * public void messageReceived({@link ChannelHandlerContext} ctx, {@link MessageEvent} e) {
- *     if (e.getMessage() instanceof GoodByeMessage) {
- *         {@link ChannelFuture} future = e.getChannel().close();
- *         future.awaitUninterruptibly();
- *         // Perform post-closure operation
- *         // ...
- *     }
+ * public void channelRead({@link ChannelHandlerContext} ctx, GoodByeMessage msg) {
+ *     {@link ChannelFuture} future = ctx.channel().close();
+ *     future.awaitUninterruptibly();
+ *     // Perform post-closure operation
+ *     // ...
  * }
  *
  * // GOOD
  * {@code @Override}
- * public void messageReceived({@link ChannelHandlerContext} ctx, {@link MessageEvent} e) {
- *     if (e.getMessage() instanceof GoodByeMessage) {
- *         {@link ChannelFuture} future = e.getChannel().close();
- *         future.addListener(new {@link ChannelFutureListener}() {
- *             public void operationComplete({@link ChannelFuture} future) {
- *                 // Perform post-closure operation
- *                 // ...
- *             }
- *         });
- *     }
+ * public void channelRead({@link ChannelHandlerContext} ctx,  GoodByeMessage msg) {
+ *     {@link ChannelFuture} future = ctx.channel().close();
+ *     future.addListener(new {@link ChannelFutureListener}() {
+ *         public void operationComplete({@link ChannelFuture} future) {
+ *             // Perform post-closure operation
+ *             // ...
+ *         }
+ *     });
  * }
  * </pre>
  * <p>
  * In spite of the disadvantages mentioned above, there are certainly the cases
  * where it is more convenient to call {@link #await()}. In such a case, please
  * make sure you do not call {@link #await()} in an I/O thread.  Otherwise,
- * {@link IllegalStateException} will be raised to prevent a dead lock.
+ * {@link BlockingOperationException} will be raised to prevent a dead lock.
  *
  * <h3>Do not confuse I/O timeout and await timeout</h3>
  *
@@ -129,7 +130,7 @@ import java.util.concurrent.TimeUnit;
  * connect timeout should be configured via a transport-specific option:
  * <pre>
  * // BAD - NEVER DO THIS
- * {@link ClientBootstrap} b = ...;
+ * {@link Bootstrap} b = ...;
  * {@link ChannelFuture} f = b.connect(...);
  * f.awaitUninterruptibly(10, TimeUnit.SECONDS);
  * if (f.isCancelled()) {
@@ -137,15 +138,15 @@ import java.util.concurrent.TimeUnit;
  * } else if (!f.isSuccess()) {
  *     // You might get a NullPointerException here because the future
  *     // might not be completed yet.
- *     f.getCause().printStackTrace();
+ *     f.cause().printStackTrace();
  * } else {
  *     // Connection established successfully
  * }
  *
  * // GOOD
- * {@link ClientBootstrap} b = ...;
+ * {@link Bootstrap} b = ...;
  * // Configure the connect timeout option.
- * <b>b.setOption("connectTimeoutMillis", 10000);</b>
+ * <b>b.option({@link ChannelOption}.CONNECT_TIMEOUT_MILLIS, 10000);</b>
  * {@link ChannelFuture} f = b.connect(...);
  * f.awaitUninterruptibly();
  *
@@ -155,13 +156,11 @@ import java.util.concurrent.TimeUnit;
  * if (f.isCancelled()) {
  *     // Connection attempt cancelled by user
  * } else if (!f.isSuccess()) {
- *     f.getCause().printStackTrace();
+ *     f.cause().printStackTrace();
  * } else {
  *     // Connection established successfully
  * }
  * </pre>
- * @apiviz.landmark
- * @apiviz.owns io.netty.channel.ChannelFutureListener - - notifies
  */
 public interface ChannelFuture extends Future<Void> {
 
@@ -171,172 +170,27 @@ public interface ChannelFuture extends Future<Void> {
      */
     Channel channel();
 
-    /**
-     * Returns {@code true} if and only if this future is
-     * complete, regardless of whether the operation was successful, failed,
-     * or cancelled.
-     */
     @Override
-    boolean isDone();
+    ChannelFuture addListener(GenericFutureListener<? extends Future<? super Void>> listener);
 
-    /**
-     * Returns {@code true} if and only if this future was
-     * cancelled by a {@link #cancel()} method.
-     */
     @Override
-    boolean isCancelled();
+    ChannelFuture addListeners(GenericFutureListener<? extends Future<? super Void>>... listeners);
 
-    /**
-     * Returns {@code true} if and only if the I/O operation was completed
-     * successfully.
-     */
-    boolean isSuccess();
+    @Override
+    ChannelFuture removeListener(GenericFutureListener<? extends Future<? super Void>> listener);
 
-    /**
-     * Returns the cause of the failed I/O operation if the I/O operation has
-     * failed.
-     *
-     * @return the cause of the failure.
-     *         {@code null} if succeeded or this future is not
-     *         completed yet.
-     */
-    Throwable cause();
+    @Override
+    ChannelFuture removeListeners(GenericFutureListener<? extends Future<? super Void>>... listeners);
 
-    /**
-     * Cancels the I/O operation associated with this future
-     * and notifies all listeners if canceled successfully.
-     *
-     * @return {@code true} if and only if the operation has been canceled.
-     *         {@code false} if the operation can't be canceled or is already
-     *         completed.
-     */
-    boolean cancel();
-
-    /**
-     * Marks this future as a success and notifies all
-     * listeners.
-     *
-     * @return {@code true} if and only if successfully marked this future as
-     *         a success. Otherwise {@code false} because this future is
-     *         already marked as either a success or a failure.
-     */
-    boolean setSuccess();
-
-    /**
-     * Marks this future as a failure and notifies all
-     * listeners.
-     *
-     * @return {@code true} if and only if successfully marked this future as
-     *         a failure. Otherwise {@code false} because this future is
-     *         already marked as either a success or a failure.
-     */
-    boolean setFailure(Throwable cause);
-
-    /**
-     * Notifies the progress of the operation to the listeners that implements
-     * {@link ChannelFutureProgressListener}. Please note that this method will
-     * not do anything and return {@code false} if this future is complete
-     * already.
-     *
-     * @return {@code true} if and only if notification was made.
-     */
-    boolean setProgress(long amount, long current, long total);
-
-    /**
-     * Adds the specified listener to this future.  The
-     * specified listener is notified when this future is
-     * {@linkplain #isDone() done}.  If this future is already
-     * completed, the specified listener is notified immediately.
-     */
-    ChannelFuture addListener(ChannelFutureListener listener);
-
-    /**
-     * Removes the specified listener from this future.
-     * The specified listener is no longer notified when this
-     * future is {@linkplain #isDone() done}.  If the specified
-     * listener is not associated with this future, this method
-     * does nothing and returns silently.
-     */
-    ChannelFuture removeListener(ChannelFutureListener listener);
-
-    /**
-     * Waits for this future until it is done, and rethrows the cause of the failure if this future
-     * failed.  If the cause of the failure is a checked exception, it is wrapped with a new
-     * {@link ChannelException} before being thrown.
-     */
+    @Override
     ChannelFuture sync() throws InterruptedException;
 
-    /**
-     * Waits for this future until it is done, and rethrows the cause of the failure if this future
-     * failed.  If the cause of the failure is a checked exception, it is wrapped with a new
-     * {@link ChannelException} before being thrown.
-     */
+    @Override
     ChannelFuture syncUninterruptibly();
 
-    /**
-     * Waits for this future to be completed.
-     *
-     * @throws InterruptedException
-     *         if the current thread was interrupted
-     */
+    @Override
     ChannelFuture await() throws InterruptedException;
 
-    /**
-     * Waits for this future to be completed without
-     * interruption.  This method catches an {@link InterruptedException} and
-     * discards it silently.
-     */
+    @Override
     ChannelFuture awaitUninterruptibly();
-
-    /**
-     * Waits for this future to be completed within the
-     * specified time limit.
-     *
-     * @return {@code true} if and only if the future was completed within
-     *         the specified time limit
-     *
-     * @throws InterruptedException
-     *         if the current thread was interrupted
-     */
-    boolean await(long timeout, TimeUnit unit) throws InterruptedException;
-
-    /**
-     * Waits for this future to be completed within the
-     * specified time limit.
-     *
-     * @return {@code true} if and only if the future was completed within
-     *         the specified time limit
-     *
-     * @throws InterruptedException
-     *         if the current thread was interrupted
-     */
-    boolean await(long timeoutMillis) throws InterruptedException;
-
-    /**
-     * Waits for this future to be completed within the
-     * specified time limit without interruption.  This method catches an
-     * {@link InterruptedException} and discards it silently.
-     *
-     * @return {@code true} if and only if the future was completed within
-     *         the specified time limit
-     */
-    boolean awaitUninterruptibly(long timeout, TimeUnit unit);
-
-    /**
-     * Waits for this future to be completed within the
-     * specified time limit without interruption.  This method catches an
-     * {@link InterruptedException} and discards it silently.
-     *
-     * @return {@code true} if and only if the future was completed within
-     *         the specified time limit
-     */
-    boolean awaitUninterruptibly(long timeoutMillis);
-
-    /**
-     * A {@link ChannelFuture} which is not allowed to be sent to {@link ChannelPipeline} due to
-     * implementation details.
-     */
-    interface Unsafe extends ChannelFuture {
-        // Tag interface
-    }
 }

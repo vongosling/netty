@@ -22,12 +22,14 @@ import java.util.regex.Pattern;
  * The version of HTTP or its derived protocols, such as
  * <a href="http://en.wikipedia.org/wiki/Real_Time_Streaming_Protocol">RTSP</a> and
  * <a href="http://en.wikipedia.org/wiki/Internet_Content_Adaptation_Protocol">ICAP</a>.
- * @apiviz.exclude
  */
 public class HttpVersion implements Comparable<HttpVersion> {
 
     private static final Pattern VERSION_PATTERN =
         Pattern.compile("(\\S+)/(\\d+)\\.(\\d+)");
+
+    private static final String HTTP_1_0_STRING = "HTTP/1.0";
+    private static final String HTTP_1_1_STRING = "HTTP/1.1";
 
     /**
      * HTTP/1.0
@@ -52,14 +54,39 @@ public class HttpVersion implements Comparable<HttpVersion> {
             throw new NullPointerException("text");
         }
 
-        text = text.trim().toUpperCase();
-        if (text.equals("HTTP/1.1")) {
+        text = text.trim();
+        // Try to match without convert to uppercase first as this is what 99% of all clients
+        // will send anyway. Also there is a change to the RFC to make it clear that it is
+        // expected to be case-sensitive
+        //
+        // See:
+        // * http://trac.tools.ietf.org/wg/httpbis/trac/ticket/1
+        // * http://trac.tools.ietf.org/wg/httpbis/trac/wiki
+        //
+        // TODO: Remove the uppercase conversion in 4.1.0 as the RFC state it must be HTTP (uppercase)
+        //       See https://github.com/netty/netty/issues/1682
+        //
+        HttpVersion version = version0(text);
+        if (version == null) {
+            text = text.toUpperCase();
+            // try again after convert to uppercase
+            version = version0(text);
+            if (version == null) {
+                // still no match, construct a new one
+                version = new HttpVersion(text, true);
+            }
+        }
+        return version;
+    }
+
+    private static HttpVersion version0(String text) {
+        if (HTTP_1_1_STRING.equals(text)) {
             return HTTP_1_1;
         }
-        if (text.equals("HTTP/1.0")) {
+        if (HTTP_1_0_STRING.equals(text)) {
             return HTTP_1_0;
         }
-        return new HttpVersion(text, true);
+        return null;
     }
 
     private final String protocolName;
@@ -85,7 +112,7 @@ public class HttpVersion implements Comparable<HttpVersion> {
         }
 
         text = text.trim().toUpperCase();
-        if (text.length() == 0) {
+        if (text.isEmpty()) {
             throw new IllegalArgumentException("empty text");
         }
 
@@ -120,7 +147,7 @@ public class HttpVersion implements Comparable<HttpVersion> {
         }
 
         protocolName = protocolName.trim().toUpperCase();
-        if (protocolName.length() == 0) {
+        if (protocolName.isEmpty()) {
             throw new IllegalArgumentException("empty protocolName");
         }
 
@@ -148,28 +175,28 @@ public class HttpVersion implements Comparable<HttpVersion> {
     /**
      * Returns the name of the protocol such as {@code "HTTP"} in {@code "HTTP/1.0"}.
      */
-    public String getProtocolName() {
+    public String protocolName() {
         return protocolName;
     }
 
     /**
      * Returns the name of the protocol such as {@code 1} in {@code "HTTP/1.0"}.
      */
-    public int getMajorVersion() {
+    public int majorVersion() {
         return majorVersion;
     }
 
     /**
      * Returns the name of the protocol such as {@code 0} in {@code "HTTP/1.0"}.
      */
-    public int getMinorVersion() {
+    public int minorVersion() {
         return minorVersion;
     }
 
     /**
      * Returns the full protocol version text such as {@code "HTTP/1.0"}.
      */
-    public String getText() {
+    public String text() {
         return text;
     }
 
@@ -186,13 +213,13 @@ public class HttpVersion implements Comparable<HttpVersion> {
      */
     @Override
     public String toString() {
-        return getText();
+        return text();
     }
 
     @Override
     public int hashCode() {
-        return (getProtocolName().hashCode() * 31 + getMajorVersion()) * 31 +
-               getMinorVersion();
+        return (protocolName().hashCode() * 31 + majorVersion()) * 31 +
+               minorVersion();
     }
 
     @Override
@@ -202,23 +229,23 @@ public class HttpVersion implements Comparable<HttpVersion> {
         }
 
         HttpVersion that = (HttpVersion) o;
-        return getMinorVersion() == that.getMinorVersion() &&
-               getMajorVersion() == that.getMajorVersion() &&
-               getProtocolName().equals(that.getProtocolName());
+        return minorVersion() == that.minorVersion() &&
+               majorVersion() == that.majorVersion() &&
+               protocolName().equals(that.protocolName());
     }
 
     @Override
     public int compareTo(HttpVersion o) {
-        int v = getProtocolName().compareTo(o.getProtocolName());
+        int v = protocolName().compareTo(o.protocolName());
         if (v != 0) {
             return v;
         }
 
-        v = getMajorVersion() - o.getMajorVersion();
+        v = majorVersion() - o.majorVersion();
         if (v != 0) {
             return v;
         }
 
-        return getMinorVersion() - o.getMinorVersion();
+        return minorVersion() - o.minorVersion();
     }
 }

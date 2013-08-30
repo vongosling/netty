@@ -19,7 +19,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundByteHandlerAdapter;
+import io.netty.channel.SimpleChannelInboundHandler;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -27,12 +27,13 @@ import java.util.logging.Logger;
 /**
  * Handles a client-side channel.
  */
-public class DiscardClientHandler extends ChannelInboundByteHandlerAdapter {
+public class DiscardClientHandler extends SimpleChannelInboundHandler<Object> {
 
     private static final Logger logger = Logger.getLogger(
             DiscardClientHandler.class.getName());
 
-    private final byte[] content;
+    private final int messageSize;
+    private ByteBuf content;
     private ChannelHandlerContext ctx;
 
     public DiscardClientHandler(int messageSize) {
@@ -40,26 +41,30 @@ public class DiscardClientHandler extends ChannelInboundByteHandlerAdapter {
             throw new IllegalArgumentException(
                     "messageSize: " + messageSize);
         }
-        content = new byte[messageSize];
+        this.messageSize = messageSize;
     }
-
 
     @Override
     public void channelActive(ChannelHandlerContext ctx)
             throws Exception {
         this.ctx = ctx;
+
+        // Initialize the message.
+        content = ctx.alloc().directBuffer(messageSize).writeZero(messageSize);
+
         // Send the initial messages.
         generateTraffic();
     }
 
-
     @Override
-    public void inboundBufferUpdated(ChannelHandlerContext ctx, ByteBuf in)
-            throws Exception {
-        // Server is supposed to send nothing, but if it sends something, discard it.
-        in.clear();
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        content.release();
     }
 
+    @Override
+    public void channelRead0(ChannelHandlerContext ctx, Object msg) throws Exception {
+        // Server is supposed to send nothing, but if it sends something, discard it.
+    }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx,
@@ -75,22 +80,15 @@ public class DiscardClientHandler extends ChannelInboundByteHandlerAdapter {
     long counter;
 
     private void generateTraffic() {
-        // Fill the outbound buffer up to 64KiB
-        ByteBuf out = ctx.nextOutboundByteBuffer();
-        while (out.readableBytes() < 65536) {
-            out.writeBytes(content);
-        }
-
         // Flush the outbound buffer to the socket.
         // Once flushed, generate the same amount of traffic again.
-        ctx.flush().addListener(GENERATE_TRAFFIC);
+        ctx.writeAndFlush(content.duplicate().retain()).addListener(trafficGenerator);
     }
 
-    private final ChannelFutureListener GENERATE_TRAFFIC = new ChannelFutureListener() {
+    private final ChannelFutureListener trafficGenerator = new ChannelFutureListener() {
         @Override
         public void operationComplete(ChannelFuture future) throws Exception {
             if (future.isSuccess()) {
-                ctx.nextOutboundByteBuffer().discardReadBytes();
                 generateTraffic();
             }
         }

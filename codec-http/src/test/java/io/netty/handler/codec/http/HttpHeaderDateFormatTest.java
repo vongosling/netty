@@ -18,8 +18,7 @@ package io.netty.handler.codec.http;
 import java.text.ParseException;
 import java.util.Date;
 
-import junit.framework.Assert;
-
+import org.junit.Assert;
 import org.junit.Test;
 
 public class HttpHeaderDateFormatTest {
@@ -33,38 +32,36 @@ public class HttpHeaderDateFormatTest {
 
     @Test
     public void testParse() throws ParseException {
-        HttpHeaderDateFormat format = new HttpHeaderDateFormat();
+        HttpHeaderDateFormat format = HttpHeaderDateFormat.get();
 
-        {
-            final Date parsed = format.parse("Sun, 6 Nov 1994 08:49:37 GMT");
-            Assert.assertNotNull(parsed);
-            Assert.assertEquals(DATE, parsed);
-        }
-        {
-            final Date parsed = format.parse("Sun, 06 Nov 1994 08:49:37 GMT");
-            Assert.assertNotNull(parsed);
-            Assert.assertEquals(DATE, parsed);
-        }
-        {
-            final Date parsed = format.parse("Sunday, 06-Nov-94 08:49:37 GMT");
-            Assert.assertNotNull(parsed);
-            Assert.assertEquals(DATE, parsed);
-        }
-        {
-            final Date parsed = format.parse("Sunday, 6-Nov-94 08:49:37 GMT");
-            Assert.assertNotNull(parsed);
-            Assert.assertEquals(DATE, parsed);
-        }
-        {
-            final Date parsed = format.parse("Sun Nov 6 08:49:37 1994");
-            Assert.assertNotNull(parsed);
-            Assert.assertEquals(DATE, parsed);
-        }
+        final Date parsedDateWithSingleDigitDay = format.parse("Sun, 6 Nov 1994 08:49:37 GMT");
+        Assert.assertNotNull(parsedDateWithSingleDigitDay);
+        Assert.assertEquals(DATE, parsedDateWithSingleDigitDay);
+
+        final Date parsedDateWithDoubleDigitDay = format.parse("Sun, 06 Nov 1994 08:49:37 GMT");
+        Assert.assertNotNull(parsedDateWithDoubleDigitDay);
+        Assert.assertEquals(DATE, parsedDateWithDoubleDigitDay);
+
+        final Date parsedDateWithDashSeparatorSingleDigitDay = format.parse("Sunday, 06-Nov-94 08:49:37 GMT");
+        Assert.assertNotNull(parsedDateWithDashSeparatorSingleDigitDay);
+        Assert.assertEquals(DATE, parsedDateWithDashSeparatorSingleDigitDay);
+
+        final Date parsedDateWithSingleDoubleDigitDay = format.parse("Sunday, 6-Nov-94 08:49:37 GMT");
+        Assert.assertNotNull(parsedDateWithSingleDoubleDigitDay);
+        Assert.assertEquals(DATE, parsedDateWithSingleDoubleDigitDay);
+
+        final Date parsedDateWithoutGMT = format.parse("Sun Nov 6 08:49:37 1994");
+        Assert.assertNotNull(parsedDateWithoutGMT);
+        Assert.assertEquals(DATE, parsedDateWithoutGMT);
+    }
+
+    private Date parseDate(HttpHeaderDateFormat dateFormat, String dateStr) throws ParseException {
+        return dateFormat.parse(dateStr);
     }
 
     @Test
     public void testFormat() {
-        HttpHeaderDateFormat format = new HttpHeaderDateFormat();
+        HttpHeaderDateFormat format = HttpHeaderDateFormat.get();
 
         final String formatted = format.format(DATE);
         Assert.assertNotNull(formatted);
