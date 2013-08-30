@@ -34,8 +34,8 @@ import java.io.InputStream;
  * This stream implements {@link DataInput} for your convenience.
  * The endianness of the stream is not always big endian but depends on
  * the endianness of the underlying buffer.
+ *
  * @see ByteBufOutputStream
- * @apiviz.uses io.netty.buffer.ByteBuf
  */
 public class ByteBufInputStream extends InputStream implements DataInput {
 
@@ -103,7 +103,7 @@ public class ByteBufInputStream extends InputStream implements DataInput {
 
     @Override
     public int read() throws IOException {
-        if (!buffer.readable()) {
+        if (!buffer.isReadable()) {
             return -1;
         }
         return buffer.readByte() & 0xff;
@@ -143,7 +143,7 @@ public class ByteBufInputStream extends InputStream implements DataInput {
 
     @Override
     public byte readByte() throws IOException {
-        if (!buffer.readable()) {
+        if (!buffer.isReadable()) {
             throw new EOFException();
         }
         return buffer.readByte();
@@ -186,18 +186,25 @@ public class ByteBufInputStream extends InputStream implements DataInput {
     @Override
     public String readLine() throws IOException {
         lineBuf.setLength(0);
-        for (;;) {
-            int b = read();
-            if (b < 0 || b == '\n') {
-                break;
+
+        loop: while (true) {
+            if (!buffer.isReadable()) {
+                return (lineBuf.length() > 0) ? lineBuf.toString() : null;
             }
 
-            lineBuf.append((char) b);
-        }
+            int c = buffer.readUnsignedByte();
+            switch (c) {
+                case '\n':
+                    break loop;
 
-        if (lineBuf.length() > 0) {
-            while (lineBuf.charAt(lineBuf.length() - 1) == '\r') {
-                lineBuf.setLength(lineBuf.length() - 1);
+                case '\r':
+                    if (buffer.isReadable() && buffer.getUnsignedByte(buffer.readerIndex()) == '\n') {
+                        buffer.skipBytes(1);
+                    }
+                    break loop;
+
+                default:
+                    lineBuf.append((char) c);
             }
         }
 

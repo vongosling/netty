@@ -16,57 +16,68 @@
 package io.netty.channel.socket.oio;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ChannelBufType;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelMetadata;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.ConnectTimeoutException;
 import io.netty.channel.EventLoop;
-import io.netty.channel.socket.DefaultSocketChannelConfig;
+import io.netty.channel.oio.OioByteStreamChannel;
+import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.SocketChannelConfig;
-import io.netty.logging.InternalLogger;
-import io.netty.logging.InternalLoggerFactory;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.SocketTimeoutException;
-import java.nio.channels.NotYetConnectedException;
 
-public class OioSocketChannel extends AbstractOioByteChannel
+/**
+ * A {@link SocketChannel} which is using Old-Blocking-IO
+ */
+public class OioSocketChannel extends OioByteStreamChannel
                               implements SocketChannel {
 
     private static final InternalLogger logger =
             InternalLoggerFactory.getInstance(OioSocketChannel.class);
 
-    private static final ChannelMetadata METADATA = new ChannelMetadata(ChannelBufType.BYTE, false);
-
     private final Socket socket;
-    private final SocketChannelConfig config;
-    private InputStream is;
-    private OutputStream os;
+    private final OioSocketChannelConfig config;
 
+    /**
+     * Create a new instance with an new {@link Socket}
+     */
     public OioSocketChannel() {
         this(new Socket());
     }
 
+    /**
+     * Create a new instance from the given {@link Socket}
+     *
+     * @param socket    the {@link Socket} which is used by this instance
+     */
     public OioSocketChannel(Socket socket) {
-        this(null, null, socket);
+        this(null, socket);
     }
 
-    public OioSocketChannel(Channel parent, Integer id, Socket socket) {
-        super(parent, id);
+    /**
+     * Create a new instance from the given {@link Socket}
+     *
+     * @param parent    the parent {@link Channel} which was used to create this instance. This can be null if the
+     *                  {@link} has no parent as it was created by your self.
+     * @param socket    the {@link Socket} which is used by this instance
+     */
+    public OioSocketChannel(Channel parent, Socket socket) {
+        super(parent);
         this.socket = socket;
-        config = new DefaultSocketChannelConfig(socket);
+        config = new DefaultOioSocketChannelConfig(this, socket);
 
         boolean success = false;
         try {
             if (socket.isConnected()) {
-                is = socket.getInputStream();
-                os = socket.getOutputStream();
+                activate(socket.getInputStream(), socket.getOutputStream());
             }
             socket.setSoTimeout(SO_TIMEOUT);
             success = true;
@@ -84,12 +95,12 @@ public class OioSocketChannel extends AbstractOioByteChannel
     }
 
     @Override
-    public ChannelMetadata metadata() {
-        return METADATA;
+    public ServerSocketChannel parent() {
+        return (ServerSocketChannel) super.parent();
     }
 
     @Override
-    public SocketChannelConfig config() {
+    public OioSocketChannelConfig config() {
         return config;
     }
 
@@ -115,10 +126,31 @@ public class OioSocketChannel extends AbstractOioByteChannel
 
     @Override
     public ChannelFuture shutdownOutput() {
-        final ChannelFuture future = newFuture();
+        return shutdownOutput(newPromise());
+    }
+
+    @Override
+    protected int doReadBytes(ByteBuf buf) throws Exception {
+        if (socket.isClosed()) {
+            return -1;
+        }
+        try {
+            return super.doReadBytes(buf);
+        } catch (SocketTimeoutException e) {
+            return 0;
+        }
+    }
+
+    @Override
+    public ChannelFuture shutdownOutput(final ChannelPromise future) {
         EventLoop loop = eventLoop();
         if (loop.inEventLoop()) {
-            shutdownOutput(future);
+            try {
+                socket.shutdownOutput();
+                future.setSuccess();
+            } catch (Throwable t) {
+                future.setFailure(t);
+            }
         } else {
             loop.execute(new Runnable() {
                 @Override
@@ -130,13 +162,14 @@ public class OioSocketChannel extends AbstractOioByteChannel
         return future;
     }
 
-    private void shutdownOutput(ChannelFuture future) {
-        try {
-            socket.shutdownOutput();
-            future.setSuccess();
-        } catch (Throwable t) {
-            future.setFailure(t);
-        }
+    @Override
+    public InetSocketAddress localAddress() {
+        return (InetSocketAddress) super.localAddress();
+    }
+
+    @Override
+    public InetSocketAddress remoteAddress() {
+        return (InetSocketAddress) super.remoteAddress();
     }
 
     @Override
@@ -164,9 +197,12 @@ public class OioSocketChannel extends AbstractOioByteChannel
         boolean success = false;
         try {
             socket.connect(remoteAddress, config().getConnectTimeoutMillis());
-            is = socket.getInputStream();
-            os = socket.getOutputStream();
+            activate(socket.getInputStream(), socket.getOutputStream());
             success = true;
+        } catch (SocketTimeoutException e) {
+            ConnectTimeoutException cause = new ConnectTimeoutException("connection timed out: " + remoteAddress);
+            cause.setStackTrace(e.getStackTrace());
+            throw cause;
         } finally {
             if (!success) {
                 doClose();
@@ -185,42 +221,15 @@ public class OioSocketChannel extends AbstractOioByteChannel
     }
 
     @Override
-    protected int available() {
-        try {
-            return is.available();
-        } catch (IOException e) {
-            return 0;
-        }
-    }
-
-    @Override
-    protected int doReadBytes(ByteBuf buf) throws Exception {
-        if (socket.isClosed()) {
-            return -1;
-        }
-
-        if (readSuspended) {
+    protected boolean checkInputShutdown() {
+        if (isInputShutdown()) {
             try {
-                Thread.sleep(SO_TIMEOUT);
-            } catch (InterruptedException e) {
+                Thread.sleep(config().getSoTimeout());
+            } catch (Throwable e) {
                 // ignore
             }
-            return 0;
+            return true;
         }
-
-        try {
-            return buf.writeBytes(is, buf.writableBytes());
-        } catch (SocketTimeoutException e) {
-            return 0;
-        }
-    }
-
-    @Override
-    protected void doWriteBytes(ByteBuf buf) throws Exception {
-        OutputStream os = this.os;
-        if (os == null) {
-            throw new NotYetConnectedException();
-        }
-        buf.readBytes(os, buf.readableBytes());
+        return false;
     }
 }

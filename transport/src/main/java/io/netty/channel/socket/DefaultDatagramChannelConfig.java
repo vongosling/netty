@@ -15,13 +15,16 @@
  */
 package io.netty.channel.socket;
 
-import static io.netty.channel.ChannelOption.*;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultChannelConfig;
-import io.netty.logging.InternalLogger;
-import io.netty.logging.InternalLoggerFactory;
-import io.netty.util.internal.DetectionUtil;
+import io.netty.channel.FixedRecvByteBufAllocator;
+import io.netty.channel.MessageSizeEstimator;
+import io.netty.channel.RecvByteBufAllocator;
+import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
@@ -31,6 +34,8 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.Map;
 
+import static io.netty.channel.ChannelOption.*;
+
 /**
  * The default {@link DatagramChannelConfig} implementation.
  */
@@ -38,19 +43,20 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(DefaultDatagramChannelConfig.class);
 
-    private static final int DEFAULT_RECEIVE_PACKET_SIZE = 2048;
+    private static final RecvByteBufAllocator DEFAULT_RCVBUF_ALLOCATOR = new FixedRecvByteBufAllocator(2048);
 
-    private final DatagramSocket socket;
-    private volatile int receivePacketSize = DEFAULT_RECEIVE_PACKET_SIZE;
+    private final DatagramSocket javaSocket;
 
     /**
      * Creates a new instance.
      */
-    public DefaultDatagramChannelConfig(DatagramSocket socket) {
-        if (socket == null) {
-            throw new NullPointerException("socket");
+    public DefaultDatagramChannelConfig(DatagramChannel channel, DatagramSocket javaSocket) {
+        super(channel);
+        if (javaSocket == null) {
+            throw new NullPointerException("javaSocket");
         }
-        this.socket = socket;
+        this.javaSocket = javaSocket;
+        setRecvByteBufAllocator(DEFAULT_RCVBUF_ALLOCATOR);
     }
 
     @Override
@@ -58,9 +64,10 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
         return getOptions(
                 super.getOptions(),
                 SO_BROADCAST, SO_RCVBUF, SO_SNDBUF, SO_REUSEADDR, IP_MULTICAST_LOOP_DISABLED,
-                IP_MULTICAST_ADDR, IP_MULTICAST_IF, IP_MULTICAST_TTL, IP_TOS, UDP_RECEIVE_PACKET_SIZE);
+                IP_MULTICAST_ADDR, IP_MULTICAST_IF, IP_MULTICAST_TTL, IP_TOS);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public <T> T getOption(ChannelOption<T> option) {
         if (option == SO_BROADCAST) {
@@ -72,9 +79,6 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
         if (option == SO_SNDBUF) {
             return (T) Integer.valueOf(getSendBufferSize());
         }
-        if (option == UDP_RECEIVE_PACKET_SIZE) {
-            return (T) Integer.valueOf(getReceivePacketSize());
-        }
         if (option == SO_REUSEADDR) {
             return (T) Boolean.valueOf(isReuseAddress());
         }
@@ -82,12 +86,10 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
             return (T) Boolean.valueOf(isLoopbackModeDisabled());
         }
         if (option == IP_MULTICAST_ADDR) {
-            @SuppressWarnings("unchecked")
             T i = (T) getInterface();
             return i;
         }
         if (option == IP_MULTICAST_IF) {
-            @SuppressWarnings("unchecked")
             T i = (T) getNetworkInterface();
             return i;
         }
@@ -133,39 +135,40 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
     @Override
     public boolean isBroadcast() {
         try {
-            return socket.getBroadcast();
+            return javaSocket.getBroadcast();
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
     }
 
     @Override
-    public void setBroadcast(boolean broadcast) {
+    public DatagramChannelConfig setBroadcast(boolean broadcast) {
         try {
             // See: https://github.com/netty/netty/issues/576
             if (broadcast &&
-                !DetectionUtil.isWindows() && !DetectionUtil.isRoot() &&
-                !socket.getLocalAddress().isAnyLocalAddress()) {
+                !PlatformDependent.isWindows() && !PlatformDependent.isRoot() &&
+                !javaSocket.getLocalAddress().isAnyLocalAddress()) {
                 // Warn a user about the fact that a non-root user can't receive a
                 // broadcast packet on *nix if the socket is bound on non-wildcard address.
                 logger.warn(
                         "A non-root user can't receive a broadcast packet if the socket " +
                         "is not bound to a wildcard address; setting the SO_BROADCAST flag " +
                         "anyway as requested on the socket which is bound to " +
-                        socket.getLocalSocketAddress() + ".");
+                        javaSocket.getLocalSocketAddress() + '.');
             }
 
-            socket.setBroadcast(broadcast);
+            javaSocket.setBroadcast(broadcast);
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
+        return this;
     }
 
     @Override
     public InetAddress getInterface() {
-        if (socket instanceof MulticastSocket) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                return ((MulticastSocket) socket).getInterface();
+                return ((MulticastSocket) javaSocket).getInterface();
             } catch (SocketException e) {
                 throw new ChannelException(e);
             }
@@ -175,23 +178,24 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
     }
 
     @Override
-    public void setInterface(InetAddress interfaceAddress) {
-        if (socket instanceof MulticastSocket) {
+    public DatagramChannelConfig setInterface(InetAddress interfaceAddress) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                ((MulticastSocket) socket).setInterface(interfaceAddress);
+                ((MulticastSocket) javaSocket).setInterface(interfaceAddress);
             } catch (SocketException e) {
                 throw new ChannelException(e);
             }
         } else {
             throw new UnsupportedOperationException();
         }
+        return this;
     }
 
     @Override
     public boolean isLoopbackModeDisabled() {
-        if (socket instanceof MulticastSocket) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                return ((MulticastSocket) socket).getLoopbackMode();
+                return ((MulticastSocket) javaSocket).getLoopbackMode();
             } catch (SocketException e) {
                 throw new ChannelException(e);
             }
@@ -201,23 +205,24 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
     }
 
     @Override
-    public void setLoopbackModeDisabled(boolean loopbackModeDisabled) {
-        if (socket instanceof MulticastSocket) {
+    public DatagramChannelConfig setLoopbackModeDisabled(boolean loopbackModeDisabled) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                ((MulticastSocket) socket).setLoopbackMode(loopbackModeDisabled);
+                ((MulticastSocket) javaSocket).setLoopbackMode(loopbackModeDisabled);
             } catch (SocketException e) {
                 throw new ChannelException(e);
             }
         } else {
             throw new UnsupportedOperationException();
         }
+        return this;
     }
 
     @Override
     public NetworkInterface getNetworkInterface() {
-        if (socket instanceof MulticastSocket) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                return ((MulticastSocket) socket).getNetworkInterface();
+                return ((MulticastSocket) javaSocket).getNetworkInterface();
             } catch (SocketException e) {
                 throw new ChannelException(e);
             }
@@ -227,91 +232,81 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
     }
 
     @Override
-    public void setNetworkInterface(NetworkInterface networkInterface) {
-        if (socket instanceof MulticastSocket) {
+    public DatagramChannelConfig setNetworkInterface(NetworkInterface networkInterface) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                ((MulticastSocket) socket).setNetworkInterface(networkInterface);
+                ((MulticastSocket) javaSocket).setNetworkInterface(networkInterface);
             } catch (SocketException e) {
                 throw new ChannelException(e);
             }
         } else {
             throw new UnsupportedOperationException();
         }
+        return this;
     }
 
     @Override
     public boolean isReuseAddress() {
         try {
-            return socket.getReuseAddress();
+            return javaSocket.getReuseAddress();
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
     }
 
     @Override
-    public void setReuseAddress(boolean reuseAddress) {
+    public DatagramChannelConfig setReuseAddress(boolean reuseAddress) {
         try {
-            socket.setReuseAddress(reuseAddress);
+            javaSocket.setReuseAddress(reuseAddress);
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
+        return this;
     }
 
     @Override
     public int getReceiveBufferSize() {
         try {
-            return socket.getReceiveBufferSize();
+            return javaSocket.getReceiveBufferSize();
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
     }
 
     @Override
-    public void setReceiveBufferSize(int receiveBufferSize) {
+    public DatagramChannelConfig setReceiveBufferSize(int receiveBufferSize) {
         try {
-            socket.setReceiveBufferSize(receiveBufferSize);
+            javaSocket.setReceiveBufferSize(receiveBufferSize);
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
+        return this;
     }
 
     @Override
     public int getSendBufferSize() {
         try {
-            return socket.getSendBufferSize();
+            return javaSocket.getSendBufferSize();
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
     }
 
     @Override
-    public void setSendBufferSize(int sendBufferSize) {
+    public DatagramChannelConfig setSendBufferSize(int sendBufferSize) {
         try {
-            socket.setSendBufferSize(sendBufferSize);
+            javaSocket.setSendBufferSize(sendBufferSize);
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
-    }
-
-    @Override
-    public int getReceivePacketSize() {
-        return receivePacketSize;
-    }
-
-    @Override
-    public void setReceivePacketSize(int receivePacketSize) {
-        if (receivePacketSize <= 0) {
-            throw new IllegalArgumentException(
-                    String.format("receivePacketSize: %d (expected: > 0)", receivePacketSize));
-        }
-        this.receivePacketSize = receivePacketSize;
+        return this;
     }
 
     @Override
     public int getTimeToLive() {
-        if (socket instanceof MulticastSocket) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                return ((MulticastSocket) socket).getTimeToLive();
+                return ((MulticastSocket) javaSocket).getTimeToLive();
             } catch (IOException e) {
                 throw new ChannelException(e);
             }
@@ -321,33 +316,89 @@ public class DefaultDatagramChannelConfig extends DefaultChannelConfig implement
     }
 
     @Override
-    public void setTimeToLive(int ttl) {
-        if (socket instanceof MulticastSocket) {
+    public DatagramChannelConfig setTimeToLive(int ttl) {
+        if (javaSocket instanceof MulticastSocket) {
             try {
-                ((MulticastSocket) socket).setTimeToLive(ttl);
+                ((MulticastSocket) javaSocket).setTimeToLive(ttl);
             } catch (IOException e) {
                 throw new ChannelException(e);
             }
         } else {
             throw new UnsupportedOperationException();
         }
+        return this;
     }
 
     @Override
     public int getTrafficClass() {
         try {
-            return socket.getTrafficClass();
+            return javaSocket.getTrafficClass();
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
     }
 
     @Override
-    public void setTrafficClass(int trafficClass) {
+    public DatagramChannelConfig setTrafficClass(int trafficClass) {
         try {
-            socket.setTrafficClass(trafficClass);
+            javaSocket.setTrafficClass(trafficClass);
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setWriteSpinCount(int writeSpinCount) {
+        super.setWriteSpinCount(writeSpinCount);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis) {
+        super.setConnectTimeoutMillis(connectTimeoutMillis);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead) {
+        super.setMaxMessagesPerRead(maxMessagesPerRead);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setAllocator(ByteBufAllocator allocator) {
+        super.setAllocator(allocator);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setRecvByteBufAllocator(RecvByteBufAllocator allocator) {
+        super.setRecvByteBufAllocator(allocator);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setAutoRead(boolean autoRead) {
+        super.setAutoRead(autoRead);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark) {
+        super.setWriteBufferHighWaterMark(writeBufferHighWaterMark);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark) {
+        super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
+        return this;
+    }
+
+    @Override
+    public DatagramChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
+        super.setMessageSizeEstimator(estimator);
+        return this;
     }
 }

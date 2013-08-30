@@ -20,6 +20,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.CorruptedFrameException;
 
+import java.util.List;
+
 import com.google.protobuf.CodedInputStream;
 
 /**
@@ -37,25 +39,19 @@ import com.google.protobuf.CodedInputStream;
  *
  * @see CodedInputStream
  */
-public class ProtobufVarint32FrameDecoder extends ByteToMessageDecoder<Object> {
+public class ProtobufVarint32FrameDecoder extends ByteToMessageDecoder {
 
     // TODO maxFrameLength + safe skip + fail-fast option
     //      (just like LengthFieldBasedFrameDecoder)
 
-    /**
-     * Creates a new instance.
-     */
-    public ProtobufVarint32FrameDecoder() {
-    }
-
     @Override
-    public Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         in.markReaderIndex();
         final byte[] buf = new byte[5];
         for (int i = 0; i < buf.length; i ++) {
-            if (!in.readable()) {
+            if (!in.isReadable()) {
                 in.resetReaderIndex();
-                return null;
+                return;
             }
 
             buf[i] = in.readByte();
@@ -67,9 +63,10 @@ public class ProtobufVarint32FrameDecoder extends ByteToMessageDecoder<Object> {
 
                 if (in.readableBytes() < length) {
                     in.resetReaderIndex();
-                    return null;
+                    return;
                 } else {
-                    return in.readBytes(length);
+                    out.add(in.readBytes(length));
+                    return;
                 }
             }
         }

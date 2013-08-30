@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -16,28 +16,16 @@
 package io.netty.handler.codec.spdy;
 
 /**
- * A SPDY Protocol SYN_REPLY Control Frame
+ * A SPDY Protocol SYN_REPLY Frame
  */
-public interface SpdySynReplyFrame extends SpdyHeaderBlock, SpdyControlFrame {
+public interface SpdySynReplyFrame extends SpdyHeadersFrame {
 
-    /**
-     * Returns the Stream-ID of this frame.
-     */
-    int getStreamId();
+    @Override
+    SpdySynReplyFrame setStreamId(int streamID);
 
-    /**
-     * Sets the Stream-ID of this frame.  The Stream-ID must be positive.
-     */
-    void setStreamId(int streamID);
+    @Override
+    SpdySynReplyFrame setLast(boolean last);
 
-    /**
-     * Returns {@code true} if this frame is the last frame to be transmitted
-     * on the stream.
-     */
-    boolean isLast();
-
-    /**
-     * Sets if this frame is the last frame to be transmitted on the stream.
-     */
-    void setLast(boolean last);
+    @Override
+    SpdySynReplyFrame setInvalid();
 }

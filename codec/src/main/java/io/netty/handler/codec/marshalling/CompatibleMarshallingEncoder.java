@@ -38,7 +38,6 @@ public class CompatibleMarshallingEncoder extends MessageToByteEncoder<Object> {
 
     private final MarshallerProvider provider;
 
-
     /**
      * Create a new instance of the {@link CompatibleMarshallingEncoder}
      *
@@ -48,9 +47,8 @@ public class CompatibleMarshallingEncoder extends MessageToByteEncoder<Object> {
         this.provider = provider;
     }
 
-
     @Override
-    public void encode(ChannelHandlerContext ctx, Object msg, ByteBuf out) throws Exception {
+    protected void encode(ChannelHandlerContext ctx, Object msg, ByteBuf out) throws Exception {
         Marshaller marshaller = provider.getMarshaller(ctx);
         marshaller.start(new ChannelBufferByteOutput(out));
         marshaller.writeObject(msg);

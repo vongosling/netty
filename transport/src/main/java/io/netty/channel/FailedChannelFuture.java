@@ -15,17 +15,15 @@
  */
 package io.netty.channel;
 
-import java.nio.channels.Channels;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import io.netty.util.concurrent.EventExecutor;
+import io.netty.util.internal.PlatformDependent;
 
 /**
  * The {@link CompleteChannelFuture} which is failed already.  It is
- * recommended to use {@link Channels#failedFuture(Channel, Throwable)}
+ * recommended to use {@link Channel#newFailedFuture(Throwable)}
  * instead of calling the constructor of this future.
  */
-public class FailedChannelFuture extends CompleteChannelFuture {
+final class FailedChannelFuture extends CompleteChannelFuture {
 
     private final Throwable cause;
 
@@ -35,8 +33,8 @@ public class FailedChannelFuture extends CompleteChannelFuture {
      * @param channel the {@link Channel} associated with this future
      * @param cause   the cause of failure
      */
-    public FailedChannelFuture(Channel channel, Throwable cause) {
-        super(channel);
+    public FailedChannelFuture(Channel channel, EventExecutor executor, Throwable cause) {
+        super(channel, executor);
         if (cause == null) {
             throw new NullPointerException("cause");
         }
@@ -54,35 +52,14 @@ public class FailedChannelFuture extends CompleteChannelFuture {
     }
 
     @Override
-    public ChannelFuture sync() throws InterruptedException {
-        return rethrow();
+    public ChannelFuture sync() {
+        PlatformDependent.throwException(cause);
+        return this;
     }
 
     @Override
     public ChannelFuture syncUninterruptibly() {
-        return rethrow();
-    }
-
-    private ChannelFuture rethrow() {
-        if (cause instanceof RuntimeException) {
-            throw (RuntimeException) cause;
-        }
-
-        if (cause instanceof Error) {
-            throw (Error) cause;
-        }
-
-        throw new ChannelException(cause);
-    }
-
-    @Override
-    public Void get() throws InterruptedException, ExecutionException {
-        throw new ExecutionException(cause);
-    }
-
-    @Override
-    public Void get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException,
-            TimeoutException {
-        throw new ExecutionException(cause);
+        PlatformDependent.throwException(cause);
+        return this;
     }
 }

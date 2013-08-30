@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -61,12 +61,13 @@ public class DefaultSpdyGoAwayFrame implements SpdyGoAwayFrame {
     }
 
     @Override
-    public void setLastGoodStreamId(int lastGoodStreamId) {
+    public SpdyGoAwayFrame setLastGoodStreamId(int lastGoodStreamId) {
         if (lastGoodStreamId < 0) {
             throw new IllegalArgumentException("Last-good-stream-ID"
                     + " cannot be negative: " + lastGoodStreamId);
         }
         this.lastGoodStreamId = lastGoodStreamId;
+        return this;
     }
 
     @Override
@@ -75,8 +76,9 @@ public class DefaultSpdyGoAwayFrame implements SpdyGoAwayFrame {
     }
 
     @Override
-    public void setStatus(SpdySessionStatus status) {
+    public SpdyGoAwayFrame setStatus(SpdySessionStatus status) {
         this.status = status;
+        return this;
     }
 
     @Override
@@ -85,10 +87,10 @@ public class DefaultSpdyGoAwayFrame implements SpdyGoAwayFrame {
         buf.append(getClass().getSimpleName());
         buf.append(StringUtil.NEWLINE);
         buf.append("--> Last-good-stream-ID = ");
-        buf.append(lastGoodStreamId);
+        buf.append(getLastGoodStreamId());
         buf.append(StringUtil.NEWLINE);
         buf.append("--> Status: ");
-        buf.append(status.toString());
+        buf.append(getStatus().toString());
         return buf.toString();
     }
 }

@@ -17,17 +17,14 @@ package io.netty.handler.timeout;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerAdapter;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventExecutor;
-import io.netty.util.HashedWheelTimer;
-import io.netty.util.Timer;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPromise;
+import io.netty.util.concurrent.EventExecutor;
 
-import java.nio.channels.Channels;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -65,54 +62,39 @@ import java.util.concurrent.TimeUnit;
  * // for 30 seconds.  The connection is closed when there is no inbound traffic
  * // for 60 seconds.
  *
- * public class MyPipelineFactory implements {@link ChannelPipelineFactory} {
- *
- *     private final {@link Timer} timer;
- *     private final {@link ChannelHandler} idleStateHandler;
- *
- *     public MyPipelineFactory({@link Timer} timer) {
- *         this.timer = timer;
- *         this.idleStateHandler = <b>new {@link IdleStateHandler}(timer, 60, 30, 0), // timer must be shared.</b>
- *     }
- *
- *     public {@link ChannelPipeline} getPipeline() {
- *         return {@link Channels}.pipeline(
- *             idleStateHandler,
- *             new MyHandler());
+ * public class MyChannelInitializer extends {@link ChannelInitializer}&lt{@link Channel}&gt {
+ *     {@code @Override}
+ *     public void initChannel({@link Channel} channel) {
+ *         channel.pipeline().addLast("idleStateHandler", new {@link IdleStateHandler}(60, 30, 0));
+ *         channel.pipeline().addLast("myHandler", new MyHandler());
  *     }
  * }
  *
  * // Handler should handle the {@link IdleStateEvent} triggered by {@link IdleStateHandler}.
- * public class MyHandler extends {@link IdleStateAwareChannelHandler} {
- *
+ * public class MyHandler extends {@link ChannelDuplexHandler} {
  *     {@code @Override}
- *     public void channelIdle({@link ChannelHandlerContext} ctx, {@link IdleStateEvent} e) {
- *         if (e.getState() == {@link IdleState}.READER_IDLE) {
- *             e.getChannel().close();
- *         } else if (e.getState() == {@link IdleState}.WRITER_IDLE) {
- *             e.getChannel().write(new PingMessage());
+ *     public void userEventTriggered({@link ChannelHandlerContext} ctx, {@link Object} evt) throws {@link Exception} {
+ *         if (evt instanceof {@link IdleState}} {
+ *             {@link IdleState} e = ({@link IdleState}) evt;
+ *             if (e.getState() == {@link IdleState}.READER_IDLE) {
+ *                 ctx.close();
+ *             } else if (e.getState() == {@link IdleState}.WRITER_IDLE) {
+ *                 ctx.writeAndFlush(new PingMessage());
+ *             }
  *         }
  *     }
  * }
  *
  * {@link ServerBootstrap} bootstrap = ...;
- * {@link Timer} timer = new {@link HashedWheelTimer}();
  * ...
- * bootstrap.setPipelineFactory(new MyPipelineFactory(timer));
+ * bootstrap.childHandler(new MyChannelInitializer());
  * ...
  * </pre>
  *
- * The {@link Timer} which was specified when the {@link IdleStateHandler} is
- * created should be stopped manually by calling {@link #releaseExternalResources()}
- * or {@link Timer#stop()} when your application shuts down.
  * @see ReadTimeoutHandler
  * @see WriteTimeoutHandler
- *
- * @apiviz.landmark
- * @apiviz.uses io.netty.util.HashedWheelTimer
- * @apiviz.has io.netty.handler.timeout.IdleStateEvent oneway - - triggers
  */
-public class IdleStateHandler extends ChannelHandlerAdapter {
+public class IdleStateHandler extends ChannelDuplexHandler {
 
     private final long readerIdleTimeMillis;
     private final long writerIdleTimeMillis;
@@ -120,19 +102,19 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
 
     volatile ScheduledFuture<?> readerIdleTimeout;
     volatile long lastReadTime;
-    int readerIdleCount;
+    private boolean firstReaderIdleEvent = true;
 
     volatile ScheduledFuture<?> writerIdleTimeout;
     volatile long lastWriteTime;
-    int writerIdleCount;
+    private boolean firstWriterIdleEvent = true;
 
     volatile ScheduledFuture<?> allIdleTimeout;
-    int allIdleCount;
+    private boolean firstAllIdleEvent = true;
 
     private volatile int state; // 0 - none, 1 - initialized, 2 - destroyed
 
     /**
-     * Creates a new instance.
+     * Creates a new instance firing {@link IdleStateEvent}s.
      *
      * @param readerIdleTimeSeconds
      *        an {@link IdleStateEvent} whose state is {@link IdleState#READER_IDLE}
@@ -157,7 +139,7 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
     }
 
     /**
-     * Creates a new instance.
+     * Creates a new instance firing {@link IdleStateEvent}s.
      *
      * @param readerIdleTime
      *        an {@link IdleStateEvent} whose state is {@link IdleState#READER_IDLE}
@@ -178,7 +160,6 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
     public IdleStateHandler(
             long readerIdleTime, long writerIdleTime, long allIdleTime,
             TimeUnit unit) {
-
         if (unit == null) {
             throw new NullPointerException("unit");
         }
@@ -225,7 +206,7 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
     }
 
     @Override
-    public void beforeAdd(ChannelHandlerContext ctx) throws Exception {
+    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         if (ctx.channel().isActive() & ctx.channel().isRegistered()) {
             // channelActvie() event has been fired already, which means this.channelActive() will
             // not be invoked. We have to initialize here instead.
@@ -237,7 +218,7 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
     }
 
     @Override
-    public void beforeRemove(ChannelHandlerContext ctx) throws Exception {
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
         destroy();
     }
 
@@ -265,25 +246,23 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
         super.channelInactive(ctx);
     }
 
-
     @Override
-    public void inboundBufferUpdated(ChannelHandlerContext ctx) throws Exception {
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         lastReadTime = System.currentTimeMillis();
-        readerIdleCount = allIdleCount = 0;
-        ctx.fireInboundBufferUpdated();
+        firstReaderIdleEvent = firstAllIdleEvent = true;
+        ctx.fireChannelRead(msg);
     }
 
     @Override
-    public void flush(final ChannelHandlerContext ctx, ChannelFuture future) throws Exception {
-        future.addListener(new ChannelFutureListener() {
+    public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+        promise.addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture future) throws Exception {
                 lastWriteTime = System.currentTimeMillis();
-                writerIdleCount = allIdleCount = 0;
+                firstWriterIdleEvent = firstAllIdleEvent = true;
             }
         });
-
-        super.flush(ctx, future);
+        ctx.write(msg, promise);
     }
 
     private void initialize(ChannelHandlerContext ctx) {
@@ -334,6 +313,10 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
         }
     }
 
+    /**
+     * Is called when an {@link IdleStateEvent} should be fired. This implementation calls
+     * {@link ChannelHandlerContext#fireUserEventTriggered(Object)}.
+     */
     protected void channelIdle(ChannelHandlerContext ctx, IdleStateEvent evt) throws Exception {
         ctx.fireUserEventTriggered(evt);
     }
@@ -360,8 +343,14 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
                 readerIdleTimeout =
                     ctx.executor().schedule(this, readerIdleTimeMillis, TimeUnit.MILLISECONDS);
                 try {
-                    channelIdle(ctx, new IdleStateEvent(
-                            IdleState.READER_IDLE, readerIdleCount ++, currentTime - lastReadTime));
+                    IdleStateEvent event;
+                    if (firstReaderIdleEvent) {
+                        firstReaderIdleEvent = false;
+                        event = IdleStateEvent.FIRST_READER_IDLE_STATE_EVENT;
+                    } else {
+                        event = IdleStateEvent.READER_IDLE_STATE_EVENT;
+                    }
+                    channelIdle(ctx, event);
                 } catch (Throwable t) {
                     ctx.fireExceptionCaught(t);
                 }
@@ -370,7 +359,6 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
                 readerIdleTimeout = ctx.executor().schedule(this, nextDelay, TimeUnit.MILLISECONDS);
             }
         }
-
     }
 
     private final class WriterIdleTimeoutTask implements Runnable {
@@ -395,8 +383,14 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
                 writerIdleTimeout = ctx.executor().schedule(
                         this, writerIdleTimeMillis, TimeUnit.MILLISECONDS);
                 try {
-                    channelIdle(ctx, new IdleStateEvent(
-                            IdleState.WRITER_IDLE, writerIdleCount ++, currentTime - lastWriteTime));
+                    IdleStateEvent event;
+                    if (firstWriterIdleEvent) {
+                        firstWriterIdleEvent = false;
+                        event = IdleStateEvent.FIRST_WRITER_IDLE_STATE_EVENT;
+                    } else {
+                        event = IdleStateEvent.WRITER_IDLE_STATE_EVENT;
+                    }
+                    channelIdle(ctx, event);
                 } catch (Throwable t) {
                     ctx.fireExceptionCaught(t);
                 }
@@ -430,8 +424,14 @@ public class IdleStateHandler extends ChannelHandlerAdapter {
                 allIdleTimeout = ctx.executor().schedule(
                         this, allIdleTimeMillis, TimeUnit.MILLISECONDS);
                 try {
-                    channelIdle(ctx, new IdleStateEvent(
-                            IdleState.ALL_IDLE, allIdleCount ++, currentTime - lastIoTime));
+                    IdleStateEvent event;
+                    if (firstAllIdleEvent) {
+                        firstAllIdleEvent = false;
+                        event = IdleStateEvent.FIRST_ALL_IDLE_STATE_EVENT;
+                    } else {
+                        event = IdleStateEvent.ALL_IDLE_STATE_EVENT;
+                    }
+                    channelIdle(ctx, event);
                 } catch (Throwable t) {
                     ctx.fireExceptionCaught(t);
                 }

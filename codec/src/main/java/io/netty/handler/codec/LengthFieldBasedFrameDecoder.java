@@ -19,6 +19,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.serialization.ObjectDecoder;
 
+import java.nio.ByteOrder;
+import java.util.List;
+
 /**
  * A decoder that splits the received {@link ByteBuf}s dynamically by the
  * value of the length field in the message.  It is particularly useful when you
@@ -178,8 +181,9 @@ import io.netty.handler.codec.serialization.ObjectDecoder;
  * </pre>
  * @see LengthFieldPrepender
  */
-public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
+public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder {
 
+    private final ByteOrder byteOrder;
     private final int maxFrameLength;
     private final int lengthFieldOffset;
     private final int lengthFieldLength;
@@ -259,9 +263,45 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
      *        has been read.
      */
     public LengthFieldBasedFrameDecoder(
-            int maxFrameLength,
-            int lengthFieldOffset, int lengthFieldLength,
+            int maxFrameLength, int lengthFieldOffset, int lengthFieldLength,
             int lengthAdjustment, int initialBytesToStrip, boolean failFast) {
+        this(
+                ByteOrder.BIG_ENDIAN, maxFrameLength, lengthFieldOffset, lengthFieldLength,
+                lengthAdjustment, initialBytesToStrip, failFast);
+    }
+
+    /**
+     * Creates a new instance.
+     *
+     * @param byteOrder
+     *        the {@link ByteOrder} of the length field
+     * @param maxFrameLength
+     *        the maximum length of the frame.  If the length of the frame is
+     *        greater than this value, {@link TooLongFrameException} will be
+     *        thrown.
+     * @param lengthFieldOffset
+     *        the offset of the length field
+     * @param lengthFieldLength
+     *        the length of the length field
+     * @param lengthAdjustment
+     *        the compensation value to add to the value of the length field
+     * @param initialBytesToStrip
+     *        the number of first bytes to strip out from the decoded frame
+     * @param failFast
+     *        If <tt>true</tt>, a {@link TooLongFrameException} is thrown as
+     *        soon as the decoder notices the length of the frame will exceed
+     *        <tt>maxFrameLength</tt> regardless of whether the entire frame
+     *        has been read.  If <tt>false</tt>, a {@link TooLongFrameException}
+     *        is thrown after the entire frame that exceeds <tt>maxFrameLength</tt>
+     *        has been read.
+     */
+    public LengthFieldBasedFrameDecoder(
+            ByteOrder byteOrder, int maxFrameLength, int lengthFieldOffset, int lengthFieldLength,
+            int lengthAdjustment, int initialBytesToStrip, boolean failFast) {
+        if (byteOrder == null) {
+            throw new NullPointerException("byteOrder");
+        }
+
         if (maxFrameLength <= 0) {
             throw new IllegalArgumentException(
                     "maxFrameLength must be a positive integer: " +
@@ -296,6 +336,7 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
                     "lengthFieldLength (" + lengthFieldLength + ").");
         }
 
+        this.byteOrder = byteOrder;
         this.maxFrameLength = maxFrameLength;
         this.lengthFieldOffset = lengthFieldOffset;
         this.lengthFieldLength = lengthFieldLength;
@@ -306,15 +347,30 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
     }
 
     @Override
-    public Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+    protected final void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        Object decoded = decode(ctx, in);
+        if (decoded != null) {
+            out.add(decoded);
+        }
+    }
+
+    /**
+     * Create a frame out of the {@link ByteBuf} and return it.
+     *
+     * @param   ctx             the {@link ChannelHandlerContext} which this {@link ByteToMessageDecoder} belongs to
+     * @param   in              the {@link ByteBuf} from which to read data
+     * @return  frame           the {@link ByteBuf} which represent the frame or {@code null} if no frame could
+     *                          be created.
+     */
+    protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
         if (discardingTooLongFrame) {
             long bytesToDiscard = this.bytesToDiscard;
             int localBytesToDiscard = (int) Math.min(bytesToDiscard, in.readableBytes());
             in.skipBytes(localBytesToDiscard);
             bytesToDiscard -= localBytesToDiscard;
             this.bytesToDiscard = bytesToDiscard;
-            failIfNecessary(ctx, false);
-            return null;
+
+            failIfNecessary(false);
         }
 
         if (in.readableBytes() < lengthFieldEndOffset) {
@@ -322,26 +378,7 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
         }
 
         int actualLengthFieldOffset = in.readerIndex() + lengthFieldOffset;
-        long frameLength;
-        switch (lengthFieldLength) {
-        case 1:
-            frameLength = in.getUnsignedByte(actualLengthFieldOffset);
-            break;
-        case 2:
-            frameLength = in.getUnsignedShort(actualLengthFieldOffset);
-            break;
-        case 3:
-            frameLength = in.getUnsignedMedium(actualLengthFieldOffset);
-            break;
-        case 4:
-            frameLength = in.getUnsignedInt(actualLengthFieldOffset);
-            break;
-        case 8:
-            frameLength = in.getLong(actualLengthFieldOffset);
-            break;
-        default:
-            throw new Error("should not reach here");
-        }
+        long frameLength = getFrameLength(in, actualLengthFieldOffset);
 
         if (frameLength < 0) {
             in.skipBytes(lengthFieldEndOffset);
@@ -359,12 +396,19 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
         }
 
         if (frameLength > maxFrameLength) {
-            // Enter the discard mode and discard everything received so far.
-            discardingTooLongFrame = true;
+            long discard = frameLength - in.readableBytes();
             tooLongFrameLength = frameLength;
-            bytesToDiscard = frameLength - in.readableBytes();
-            in.skipBytes(in.readableBytes());
-            failIfNecessary(ctx, true);
+
+            if (discard < 0) {
+                // buffer contains more bytes then the frameLength so we can discard all now
+                in.skipBytes((int) frameLength);
+            } else {
+                // Enter the discard mode and discard everything received so far.
+                discardingTooLongFrame = true;
+                bytesToDiscard = discard;
+                in.skipBytes(in.readableBytes());
+            }
+            failIfNecessary(true);
             return null;
         }
 
@@ -385,12 +429,37 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
         // extract frame
         int readerIndex = in.readerIndex();
         int actualFrameLength = frameLengthInt - initialBytesToStrip;
-        ByteBuf frame = extractFrame(in, readerIndex, actualFrameLength);
+        ByteBuf frame = extractFrame(ctx, in, readerIndex, actualFrameLength);
         in.readerIndex(readerIndex + actualFrameLength);
         return frame;
     }
 
-    private void failIfNecessary(ChannelHandlerContext ctx, boolean firstDetectionOfTooLongFrame) {
+    private long getFrameLength(ByteBuf in, int actualLengthFieldOffset) {
+        in = in.order(byteOrder);
+        long frameLength;
+        switch (lengthFieldLength) {
+        case 1:
+            frameLength = in.getUnsignedByte(actualLengthFieldOffset);
+            break;
+        case 2:
+            frameLength = in.getUnsignedShort(actualLengthFieldOffset);
+            break;
+        case 3:
+            frameLength = in.getUnsignedMedium(actualLengthFieldOffset);
+            break;
+        case 4:
+            frameLength = in.getUnsignedInt(actualLengthFieldOffset);
+            break;
+        case 8:
+            frameLength = in.getLong(actualLengthFieldOffset);
+            break;
+        default:
+            throw new Error("should not reach here");
+        }
+        return frameLength;
+    }
+
+    private void failIfNecessary(boolean firstDetectionOfTooLongFrame) {
         if (bytesToDiscard == 0) {
             // Reset to the initial state and tell the handlers that
             // the frame was too large.
@@ -399,49 +468,42 @@ public class LengthFieldBasedFrameDecoder extends ByteToMessageDecoder<Object> {
             discardingTooLongFrame = false;
             if (!failFast ||
                 failFast && firstDetectionOfTooLongFrame) {
-                fail(ctx, tooLongFrameLength);
+                fail(tooLongFrameLength);
             }
         } else {
             // Keep discarding and notify handlers if necessary.
             if (failFast && firstDetectionOfTooLongFrame) {
-                fail(ctx, tooLongFrameLength);
+                fail(tooLongFrameLength);
             }
         }
-
     }
 
     /**
-     * Extract the sub-region of the specified buffer. This method is called by
-     * {@link #decode(ChannelInboundHandlerContext, ByteBuf)} for each
-     * frame.  The default implementation returns a copy of the sub-region.
-     * For example, you could override this method to use an alternative
-     * {@link ByteBufFactory}.
+     * Extract the sub-region of the specified buffer.
      * <p>
      * If you are sure that the frame and its content are not accessed after
-     * the current {@link #decode(ChannelInboundHandlerContext, ByteBuf)}
+     * the current {@link #decode(ChannelHandlerContext, ByteBuf)}
      * call returns, you can even avoid memory copy by returning the sliced
      * sub-region (i.e. <tt>return buffer.slice(index, length)</tt>).
      * It's often useful when you convert the extracted frame into an object.
      * Refer to the source code of {@link ObjectDecoder} to see how this method
      * is overridden to avoid memory copy.
      */
-    protected ByteBuf extractFrame(ByteBuf buffer, int index, int length) {
-        ByteBuf frame = buffer.unsafe().newBuffer(length);
+    protected ByteBuf extractFrame(ChannelHandlerContext ctx, ByteBuf buffer, int index, int length) {
+        ByteBuf frame = ctx.alloc().buffer(length);
         frame.writeBytes(buffer, index, length);
         return frame;
     }
 
-    private void fail(ChannelHandlerContext ctx, long frameLength) {
+    private void fail(long frameLength) {
         if (frameLength > 0) {
-            ctx.fireExceptionCaught(
-                    new TooLongFrameException(
+            throw new TooLongFrameException(
                             "Adjusted frame length exceeds " + maxFrameLength +
-                            ": " + frameLength + " - discarded"));
+                            ": " + frameLength + " - discarded");
         } else {
-            ctx.fireExceptionCaught(
-                    new TooLongFrameException(
+            throw new TooLongFrameException(
                             "Adjusted frame length exceeds " + maxFrameLength +
-                            " - discarding"));
+                            " - discarding");
         }
     }
 }

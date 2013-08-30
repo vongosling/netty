@@ -15,23 +15,24 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.channel.embedded.EmbeddedByteChannel;
+import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.compression.ZlibCodecFactory;
 import io.netty.handler.codec.compression.ZlibWrapper;
 
 /**
- * Decompresses an {@link HttpMessage} and an {@link HttpChunk} compressed in
+ * Decompresses an {@link HttpMessage} and an {@link HttpContent} compressed in
  * {@code gzip} or {@code deflate} encoding.  For more information on how this
  * handler modifies the message, please refer to {@link HttpContentDecoder}.
  */
 public class HttpContentDecompressor extends HttpContentDecoder {
     @Override
-    protected EmbeddedByteChannel newContentDecoder(String contentEncoding) throws Exception {
+    protected EmbeddedChannel newContentDecoder(String contentEncoding) throws Exception {
         if ("gzip".equalsIgnoreCase(contentEncoding) || "x-gzip".equalsIgnoreCase(contentEncoding)) {
-            return new EmbeddedByteChannel(ZlibCodecFactory.newZlibDecoder(ZlibWrapper.GZIP));
-        } else if ("deflate".equalsIgnoreCase(contentEncoding) || "x-deflate".equalsIgnoreCase(contentEncoding)) {
+            return new EmbeddedChannel(ZlibCodecFactory.newZlibDecoder(ZlibWrapper.GZIP));
+        }
+        if ("deflate".equalsIgnoreCase(contentEncoding) || "x-deflate".equalsIgnoreCase(contentEncoding)) {
             // To be strict, 'deflate' means ZLIB, but some servers were not implemented correctly.
-            return new EmbeddedByteChannel(ZlibCodecFactory.newZlibDecoder(ZlibWrapper.ZLIB_OR_NONE));
+            return new EmbeddedChannel(ZlibCodecFactory.newZlibDecoder(ZlibWrapper.ZLIB_OR_NONE));
         }
 
         // 'identity' or unsupported

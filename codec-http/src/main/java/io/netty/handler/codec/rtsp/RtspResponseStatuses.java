@@ -18,8 +18,7 @@ package io.netty.handler.codec.rtsp;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
- * The status code and its description of a RTSP response.
- * @apiviz.exclude
+ * The getStatus code and its description of a RTSP response.
  */
 public final class RtspResponseStatuses {
 
@@ -260,10 +259,9 @@ public final class RtspResponseStatuses {
     public static final HttpResponseStatus OPTION_NOT_SUPPORTED = new HttpResponseStatus(
             551, "Option not supported");
 
-
     /**
      * Returns the {@link HttpResponseStatus} represented by the specified code.
-     * If the specified code is a standard RTSP status code, a cached instance
+     * If the specified code is a standard RTSP getStatus code, a cached instance
      * will be returned.  Otherwise, a new instance will be returned.
      */
     public static HttpResponseStatus valueOf(int code) {

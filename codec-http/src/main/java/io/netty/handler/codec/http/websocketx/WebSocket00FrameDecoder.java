@@ -20,16 +20,15 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ReplayingDecoder;
 import io.netty.handler.codec.TooLongFrameException;
 
+import java.util.List;
+
 /**
  * Decodes {@link ByteBuf}s into {@link WebSocketFrame}s.
  * <p>
  * For the detailed instruction on adding add Web Socket support to your HTTP server, take a look into the
  * <tt>WebSocketServer</tt> example located in the {@code io.netty.example.http.websocket} package.
- *
- * @apiviz.landmark
- * @apiviz.uses io.netty.handler.codec.http.websocket.WebSocketFrame
  */
-public class WebSocket00FrameDecoder extends ReplayingDecoder<WebSocketFrame, Void> {
+public class WebSocket00FrameDecoder extends ReplayingDecoder<Void> implements WebSocketFrameDecoder {
 
     static final int DEFAULT_MAX_FRAME_SIZE = 16384;
 
@@ -52,25 +51,25 @@ public class WebSocket00FrameDecoder extends ReplayingDecoder<WebSocketFrame, Vo
     }
 
     @Override
-    public WebSocketFrame decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         // Discard all data received if closing handshake was received before.
         if (receivedClosingHandshake) {
             in.skipBytes(actualReadableBytes());
-            return null;
+            return;
         }
 
         // Decode a frame otherwise.
         byte type = in.readByte();
         if ((type & 0x80) == 0x80) {
             // If the MSB on type is set, decode the frame length
-            return decodeBinaryFrame(type, in);
+            out.add(decodeBinaryFrame(ctx, type, in));
         } else {
             // Decode a 0xff terminated UTF-8 string
-            return decodeTextFrame(in);
+            out.add(decodeTextFrame(ctx, in));
         }
     }
 
-    private WebSocketFrame decodeBinaryFrame(byte type, ByteBuf buffer) throws TooLongFrameException {
+    private WebSocketFrame decodeBinaryFrame(ChannelHandlerContext ctx, byte type, ByteBuf buffer) {
         long frameSize = 0;
         int lengthFieldSize = 0;
         byte b;
@@ -92,11 +91,12 @@ public class WebSocket00FrameDecoder extends ReplayingDecoder<WebSocketFrame, Vo
             receivedClosingHandshake = true;
             return new CloseWebSocketFrame();
         }
-
-        return new BinaryWebSocketFrame(buffer.readBytes((int) frameSize));
+        ByteBuf payload = ctx.alloc().buffer((int) frameSize);
+        buffer.readBytes(payload);
+        return new BinaryWebSocketFrame(payload);
     }
 
-    private WebSocketFrame decodeTextFrame(ByteBuf buffer) throws TooLongFrameException {
+    private WebSocketFrame decodeTextFrame(ChannelHandlerContext ctx, ByteBuf buffer) {
         int ridx = buffer.readerIndex();
         int rbytes = actualReadableBytes();
         int delimPos = buffer.indexOf(ridx, ridx + rbytes, (byte) 0xFF);
@@ -116,7 +116,8 @@ public class WebSocket00FrameDecoder extends ReplayingDecoder<WebSocketFrame, Vo
             throw new TooLongFrameException();
         }
 
-        ByteBuf binaryData = buffer.readBytes(frameSize);
+        ByteBuf binaryData = ctx.alloc().buffer(frameSize);
+        buffer.readBytes(binaryData);
         buffer.skipBytes(1);
 
         int ffDelimPos = binaryData.indexOf(binaryData.readerIndex(), binaryData.writerIndex(), (byte) 0xFF);

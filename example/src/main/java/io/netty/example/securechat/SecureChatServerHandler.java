@@ -17,10 +17,13 @@ package io.netty.example.securechat;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundMessageHandlerAdapter;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.handler.ssl.SslHandler;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.concurrent.GlobalEventExecutor;
 
 import java.net.InetAddress;
 import java.util.logging.Level;
@@ -29,43 +32,48 @@ import java.util.logging.Logger;
 /**
  * Handles a server-side channel.
  */
-public class SecureChatServerHandler extends ChannelInboundMessageHandlerAdapter<String> {
+public class SecureChatServerHandler extends SimpleChannelInboundHandler<String> {
 
     private static final Logger logger = Logger.getLogger(
             SecureChatServerHandler.class.getName());
 
-    static final ChannelGroup channels = new DefaultChannelGroup();
+    static final ChannelGroup channels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        // Once session is secured, send a greeting.
-        ctx.write(
-                "Welcome to " + InetAddress.getLocalHost().getHostName() +
-                " secure chat service!\n");
-        ctx.write(
-                "Your session is protected by " +
-                ctx.pipeline().get(SslHandler.class).getEngine().getSession().getCipherSuite() +
-                " cipher suite.\n");
+    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+        // Once session is secured, send a greeting and register the channel to the global channel
+        // list so the channel received the messages from others.
+        ctx.pipeline().get(SslHandler.class).handshakeFuture().addListener(
+                new GenericFutureListener<Future<Channel>>() {
+            @Override
+            public void operationComplete(Future<Channel> future) throws Exception {
+                ctx.writeAndFlush(
+                        "Welcome to " + InetAddress.getLocalHost().getHostName() +
+                        " secure chat service!\n");
+                ctx.writeAndFlush(
+                        "Your session is protected by " +
+                        ctx.pipeline().get(SslHandler.class).engine().getSession().getCipherSuite() +
+                        " cipher suite.\n");
 
-        // Register the channel to the global channel list
-        // so the channel received the messages from others.
-        channels.add(ctx.channel());
+                channels.add(ctx.channel());
+            }
+        });
     }
 
     @Override
-    public void messageReceived(ChannelHandlerContext ctx, String request) throws Exception {
+    public void channelRead0(ChannelHandlerContext ctx, String msg) throws Exception {
         // Send the received message to all channels but the current one.
         for (Channel c: channels) {
             if (c != ctx.channel()) {
-                c.write("[" + ctx.channel().remoteAddress() + "] " +
-                        request + '\n');
+                c.writeAndFlush("[" + ctx.channel().remoteAddress() + "] " +
+                        msg + '\n');
             } else {
-                c.write("[you] " + request + '\n');
+                c.writeAndFlush("[you] " + msg + '\n');
             }
         }
 
         // Close the connection if the client has sent 'bye'.
-        if (request.toLowerCase().equals("bye")) {
+        if ("bye".equals(msg.toLowerCase())) {
             ctx.close();
         }
     }

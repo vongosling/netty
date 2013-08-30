@@ -20,11 +20,12 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.local.LocalAddress;
 import io.netty.channel.local.LocalChannel;
 import io.netty.channel.local.LocalEventLoopGroup;
 import io.netty.channel.local.LocalServerChannel;
-import io.netty.channel.socket.nio.NioEventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 
@@ -43,15 +44,15 @@ public class LocalEcho {
         // Address to bind on / connect to.
         final LocalAddress addr = new LocalAddress(port);
 
-        Bootstrap cb = new Bootstrap();
-        ServerBootstrap sb = new ServerBootstrap();
+        EventLoopGroup serverGroup = new LocalEventLoopGroup();
+        EventLoopGroup clientGroup = new NioEventLoopGroup(); // NIO event loops are also OK
         try {
             // Note that we can use any event loop to ensure certain local channels
             // are handled by the same event loop thread which drives a certain socket channel
             // to reduce the communication latency between socket channels and local channels.
-            sb.group(new LocalEventLoopGroup())
-              .channel(new LocalServerChannel())
-              .localAddress(addr)
+            ServerBootstrap sb = new ServerBootstrap();
+            sb.group(serverGroup)
+              .channel(LocalServerChannel.class)
               .handler(new ChannelInitializer<LocalServerChannel>() {
                   @Override
                   public void initChannel(LocalServerChannel ch) throws Exception {
@@ -67,9 +68,9 @@ public class LocalEcho {
                   }
               });
 
-            cb.group(new NioEventLoopGroup()) // NIO event loops are also OK
-              .channel(new LocalChannel())
-              .remoteAddress(addr)
+            Bootstrap cb = new Bootstrap();
+            cb.group(clientGroup)
+              .channel(LocalChannel.class)
               .handler(new ChannelInitializer<LocalChannel>() {
                   @Override
                   public void initChannel(LocalChannel ch) throws Exception {
@@ -77,27 +78,26 @@ public class LocalEcho {
                               new LoggingHandler(LogLevel.INFO),
                               new LocalEchoClientHandler());
                   }
-
               });
 
             // Start the server.
-            sb.bind().sync();
+            sb.bind(addr).sync();
 
             // Start the client.
-            Channel ch = cb.connect().sync().channel();
+            Channel ch = cb.connect(addr).sync().channel();
 
             // Read commands from the stdin.
             System.out.println("Enter text (quit to end)");
             ChannelFuture lastWriteFuture = null;
             BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-            for (; ;) {
+            for (;;) {
                 String line = in.readLine();
                 if (line == null || "quit".equalsIgnoreCase(line)) {
                     break;
                 }
 
                 // Sends the received line to the server.
-                lastWriteFuture = ch.write(line);
+                lastWriteFuture = ch.writeAndFlush(line);
             }
 
             // Wait until all messages are flushed before closing the channel.
@@ -105,8 +105,8 @@ public class LocalEcho {
                 lastWriteFuture.awaitUninterruptibly();
             }
         } finally {
-            sb.shutdown();
-            cb.shutdown();
+            serverGroup.shutdownGracefully();
+            clientGroup.shutdownGracefully();
         }
     }
 

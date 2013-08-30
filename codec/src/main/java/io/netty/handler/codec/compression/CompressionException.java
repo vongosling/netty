@@ -15,13 +15,12 @@
  */
 package io.netty.handler.codec.compression;
 
-import java.io.IOException;
+import io.netty.handler.codec.EncoderException;
 
 /**
- * An {@link IOException} that is raised when compression or decompression
- * failed.
+ * An {@link EncoderException} that is raised when compression failed.
  */
-public class CompressionException extends RuntimeException {
+public class CompressionException extends EncoderException {
 
     private static final long serialVersionUID = 5603413481274811897L;
 

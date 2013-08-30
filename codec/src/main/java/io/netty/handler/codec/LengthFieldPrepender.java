@@ -19,13 +19,10 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 
-import java.nio.ByteOrder;
 
 /**
  * An encoder that prepends the length of the message.  The length value is
- * prepended as a binary form.  It is encoded in either big endian or little
- * endian depending on the default {@link ByteOrder} of the current
- * {@link ByteBufFactory}.
+ * prepended as a binary form.
  * <p>
  * For example, <tt>{@link LengthFieldPrepender}(2)</tt> will encode the
  * following 12-bytes string:
@@ -54,6 +51,7 @@ public class LengthFieldPrepender extends MessageToByteEncoder<ByteBuf> {
 
     private final int lengthFieldLength;
     private final boolean lengthIncludesLengthFieldLength;
+    private final int lengthAdjustment;
 
     /**
      * Creates a new instance.
@@ -81,8 +79,41 @@ public class LengthFieldPrepender extends MessageToByteEncoder<ByteBuf> {
      * @throws IllegalArgumentException
      *         if {@code lengthFieldLength} is not 1, 2, 3, 4, or 8
      */
-    public LengthFieldPrepender(
-            int lengthFieldLength, boolean lengthIncludesLengthFieldLength) {
+    public LengthFieldPrepender(int lengthFieldLength, boolean lengthIncludesLengthFieldLength) {
+        this(lengthFieldLength, 0, lengthIncludesLengthFieldLength);
+    }
+
+    /**
+     * Creates a new instance.
+     *
+     * @param lengthFieldLength the length of the prepended length field.
+     *                          Only 1, 2, 3, 4, and 8 are allowed.
+     * @param lengthAdjustment  the compensation value to add to the value
+     *                          of the length field
+     *
+     * @throws IllegalArgumentException
+     *         if {@code lengthFieldLength} is not 1, 2, 3, 4, or 8
+     */
+    public LengthFieldPrepender(int lengthFieldLength, int lengthAdjustment) {
+        this(lengthFieldLength, lengthAdjustment, false);
+    }
+
+    /**
+     * Creates a new instance.
+     *
+     * @param lengthFieldLength the length of the prepended length field.
+     *                          Only 1, 2, 3, 4, and 8 are allowed.
+     * @param lengthAdjustment  the compensation value to add to the value
+     *                          of the length field
+     * @param lengthIncludesLengthFieldLength
+     *                          if {@code true}, the length of the prepended
+     *                          length field is added to the value of the
+     *                          prepended length field.
+     *
+     * @throws IllegalArgumentException
+     *         if {@code lengthFieldLength} is not 1, 2, 3, 4, or 8
+     */
+    public LengthFieldPrepender(int lengthFieldLength, int lengthAdjustment, boolean lengthIncludesLengthFieldLength) {
         if (lengthFieldLength != 1 && lengthFieldLength != 2 &&
             lengthFieldLength != 3 && lengthFieldLength != 4 &&
             lengthFieldLength != 8) {
@@ -93,20 +124,21 @@ public class LengthFieldPrepender extends MessageToByteEncoder<ByteBuf> {
 
         this.lengthFieldLength = lengthFieldLength;
         this.lengthIncludesLengthFieldLength = lengthIncludesLengthFieldLength;
+        this.lengthAdjustment = lengthAdjustment;
     }
 
     @Override
-    public boolean isEncodable(Object msg) throws Exception {
-        return msg instanceof ByteBuf;
-    }
+    protected void encode(ChannelHandlerContext ctx, ByteBuf msg, ByteBuf out) throws Exception {
+        int length = msg.readableBytes() + lengthAdjustment;
+        if (lengthIncludesLengthFieldLength) {
+            length += lengthFieldLength;
+        }
 
-    @Override
-    public void encode(
-            ChannelHandlerContext ctx,
-            ByteBuf msg, ByteBuf out) throws Exception {
+        if (length < 0) {
+            throw new IllegalArgumentException(
+                    "Adjusted frame length (" + length + ") is less than zero");
+        }
 
-        int length = lengthIncludesLengthFieldLength?
-                msg.readableBytes() + lengthFieldLength : msg.readableBytes();
         switch (lengthFieldLength) {
         case 1:
             if (length >= 256) {

@@ -15,13 +15,39 @@
  */
 package io.netty.testsuite.util;
 
+import io.netty.util.NetUtil;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.nio.channels.Channel;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
 
-public class TestUtils {
+public final class TestUtils {
 
-    private final static int START_PORT = 20000;
-    private final static int END_PORT = 30000;
+    private static final int START_PORT = 32768;
+    private static final int END_PORT = 65536;
+    private static final int NUM_CANDIDATES = END_PORT - START_PORT;
+
+    private static final List<Integer> PORTS = new ArrayList<Integer>();
+    private static Iterator<Integer> portIterator;
+
+    static {
+        for (int i = START_PORT; i < END_PORT; i ++) {
+            PORTS.add(i);
+        }
+        Collections.shuffle(PORTS);
+    }
+
+    private static int nextCandidatePort() {
+        if (portIterator == null || !portIterator.hasNext()) {
+            portIterator = PORTS.iterator();
+        }
+        return portIterator.next();
+    }
 
     /**
      * Return a free port which can be used to bind to
@@ -29,18 +55,60 @@ public class TestUtils {
      * @return port
      */
     public static int getFreePort() {
-        for(int start = START_PORT; start <= END_PORT; start++) {
+        for (int i = 0; i < NUM_CANDIDATES; i ++) {
+            int port = nextCandidatePort();
             try {
-                ServerSocket socket = new ServerSocket(start);
-                socket.setReuseAddress(true);
-                socket.close();
-                return start;
+                // Ensure it is possible to bind on both wildcard and loopback.
+                ServerSocket ss;
+                ss = new ServerSocket();
+                ss.setReuseAddress(false);
+                ss.bind(new InetSocketAddress(port));
+                ss.close();
+
+                ss = new ServerSocket();
+                ss.setReuseAddress(false);
+                ss.bind(new InetSocketAddress(NetUtil.LOCALHOST, port));
+                ss.close();
+
+                return port;
             } catch (IOException e) {
                 // ignore
             }
-
         }
-        throw new RuntimeException("Unable to find a free port....");
+
+        throw new RuntimeException("unable to find a free port");
+    }
+
+    /**
+     * Return {@code true} if SCTP is supported by the running os.
+     *
+     */
+    public static boolean isSctpSupported() {
+        String os = System.getProperty("os.name").toLowerCase(Locale.UK);
+        if ("unix".equals(os) || "linux".equals(os) || "sun".equals(os) || "solaris".equals(os)) {
+            try {
+                // Try to open a SCTP Channel, by using reflection to make it compile also on
+                // operation systems that not support SCTP like OSX and Windows
+                Class<?> sctpChannelClass = Class.forName("com.sun.nio.sctp.SctpChannel");
+                Channel channel = (Channel) sctpChannelClass.getMethod("open").invoke(null);
+                try {
+                    channel.close();
+                } catch (IOException e) {
+                    // ignore
+                }
+            } catch (UnsupportedOperationException e) {
+                // This exception may get thrown if the OS does not have
+                // the shared libs installed.
+                System.out.print("Not supported: " + e.getMessage());
+                return false;
+            } catch (Throwable t) {
+                if (!(t instanceof IOException)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     private TestUtils() { }

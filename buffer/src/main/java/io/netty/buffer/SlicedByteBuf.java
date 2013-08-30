@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 
@@ -29,30 +30,23 @@ import java.nio.channels.ScatteringByteChannel;
  * {@link ByteBuf#slice(int, int)} instead of calling the constructor
  * explicitly.
  */
-public class SlicedByteBuf extends AbstractByteBuf implements WrappedByteBuf {
+public class SlicedByteBuf extends AbstractDerivedByteBuf {
 
-    private final Unsafe unsafe = new SlicedUnsafe();
     private final ByteBuf buffer;
     private final int adjustment;
     private final int length;
 
     public SlicedByteBuf(ByteBuf buffer, int index, int length) {
-        super(buffer.order(), length);
-        if (index < 0 || index > buffer.capacity()) {
-            throw new IndexOutOfBoundsException("Invalid index of " + index
-                    + ", maximum is " + buffer.capacity());
-        }
-
-        if (index + length > buffer.capacity()) {
-            throw new IndexOutOfBoundsException("Invalid combined index of "
-                    + (index + length) + ", maximum is " + buffer.capacity());
+        super(length);
+        if (index < 0 || index > buffer.capacity() - length) {
+            throw new IndexOutOfBoundsException(buffer.toString() + ".slice(" + index + ", " + length + ')');
         }
 
         if (buffer instanceof SlicedByteBuf) {
             this.buffer = ((SlicedByteBuf) buffer).buffer;
             adjustment = ((SlicedByteBuf) buffer).adjustment + index;
         } else if (buffer instanceof DuplicatedByteBuf) {
-            this.buffer = ((DuplicatedByteBuf) buffer).buffer;
+            this.buffer = buffer.unwrap();
             adjustment = index;
         } else {
             this.buffer = buffer;
@@ -61,13 +55,21 @@ public class SlicedByteBuf extends AbstractByteBuf implements WrappedByteBuf {
         this.length = length;
 
         writerIndex(length);
-
-        buffer.unsafe().acquire();
     }
 
     @Override
     public ByteBuf unwrap() {
         return buffer;
+    }
+
+    @Override
+    public ByteBufAllocator alloc() {
+        return buffer.alloc();
+    }
+
+    @Override
+    public ByteOrder order() {
+        return buffer.order();
     }
 
     @Override
@@ -81,7 +83,7 @@ public class SlicedByteBuf extends AbstractByteBuf implements WrappedByteBuf {
     }
 
     @Override
-    public void capacity(int newCapacity) {
+    public ByteBuf capacity(int newCapacity) {
         throw new UnsupportedOperationException("sliced buffer");
     }
 
@@ -101,38 +103,43 @@ public class SlicedByteBuf extends AbstractByteBuf implements WrappedByteBuf {
     }
 
     @Override
-    public byte getByte(int index) {
-        checkIndex(index);
+    public boolean hasMemoryAddress() {
+        return buffer.hasMemoryAddress();
+    }
+
+    @Override
+    public long memoryAddress() {
+        return buffer.memoryAddress() + adjustment;
+    }
+
+    @Override
+    protected byte _getByte(int index) {
         return buffer.getByte(index + adjustment);
     }
 
     @Override
-    public short getShort(int index) {
-        checkIndex(index, 2);
+    protected short _getShort(int index) {
         return buffer.getShort(index + adjustment);
     }
 
     @Override
-    public int getUnsignedMedium(int index) {
-        checkIndex(index, 3);
+    protected int _getUnsignedMedium(int index) {
         return buffer.getUnsignedMedium(index + adjustment);
     }
 
     @Override
-    public int getInt(int index) {
-        checkIndex(index, 4);
+    protected int _getInt(int index) {
         return buffer.getInt(index + adjustment);
     }
 
     @Override
-    public long getLong(int index) {
-        checkIndex(index, 8);
+    protected long _getLong(int index) {
         return buffer.getLong(index + adjustment);
     }
 
     @Override
     public ByteBuf duplicate() {
-        ByteBuf duplicate = new SlicedByteBuf(buffer, adjustment, length);
+        ByteBuf duplicate = buffer.slice(adjustment, length);
         duplicate.setIndex(readerIndex(), writerIndex());
         return duplicate;
     }
@@ -149,106 +156,104 @@ public class SlicedByteBuf extends AbstractByteBuf implements WrappedByteBuf {
         if (length == 0) {
             return Unpooled.EMPTY_BUFFER;
         }
-        return new SlicedByteBuf(buffer, index + adjustment, length);
+        return buffer.slice(index + adjustment, length);
     }
 
     @Override
-    public void getBytes(int index, ByteBuf dst, int dstIndex, int length) {
+    public ByteBuf getBytes(int index, ByteBuf dst, int dstIndex, int length) {
         checkIndex(index, length);
         buffer.getBytes(index + adjustment, dst, dstIndex, length);
+        return this;
     }
 
     @Override
-    public void getBytes(int index, byte[] dst, int dstIndex, int length) {
+    public ByteBuf getBytes(int index, byte[] dst, int dstIndex, int length) {
         checkIndex(index, length);
         buffer.getBytes(index + adjustment, dst, dstIndex, length);
+        return this;
     }
 
     @Override
-    public void getBytes(int index, ByteBuffer dst) {
+    public ByteBuf getBytes(int index, ByteBuffer dst) {
         checkIndex(index, dst.remaining());
         buffer.getBytes(index + adjustment, dst);
+        return this;
     }
 
     @Override
-    public void setByte(int index, int value) {
-        checkIndex(index);
+    protected void _setByte(int index, int value) {
         buffer.setByte(index + adjustment, value);
     }
 
     @Override
-    public void setShort(int index, int value) {
-        checkIndex(index, 2);
+    protected void _setShort(int index, int value) {
         buffer.setShort(index + adjustment, value);
     }
 
     @Override
-    public void setMedium(int index, int value) {
-        checkIndex(index, 3);
+    protected void _setMedium(int index, int value) {
         buffer.setMedium(index + adjustment, value);
     }
 
     @Override
-    public void setInt(int index, int value) {
-        checkIndex(index, 4);
+    protected void _setInt(int index, int value) {
         buffer.setInt(index + adjustment, value);
     }
 
     @Override
-    public void setLong(int index, long value) {
-        checkIndex(index, 8);
+    protected void _setLong(int index, long value) {
         buffer.setLong(index + adjustment, value);
     }
 
     @Override
-    public void setBytes(int index, byte[] src, int srcIndex, int length) {
+    public ByteBuf setBytes(int index, byte[] src, int srcIndex, int length) {
         checkIndex(index, length);
         buffer.setBytes(index + adjustment, src, srcIndex, length);
+        return this;
     }
 
     @Override
-    public void setBytes(int index, ByteBuf src, int srcIndex, int length) {
+    public ByteBuf setBytes(int index, ByteBuf src, int srcIndex, int length) {
         checkIndex(index, length);
         buffer.setBytes(index + adjustment, src, srcIndex, length);
+        return this;
     }
 
     @Override
-    public void setBytes(int index, ByteBuffer src) {
+    public ByteBuf setBytes(int index, ByteBuffer src) {
         checkIndex(index, src.remaining());
         buffer.setBytes(index + adjustment, src);
+        return this;
     }
 
     @Override
-    public void getBytes(int index, OutputStream out, int length)
-            throws IOException {
+    public ByteBuf getBytes(int index, OutputStream out, int length) throws IOException {
         checkIndex(index, length);
         buffer.getBytes(index + adjustment, out, length);
+        return this;
     }
 
     @Override
-    public int getBytes(int index, GatheringByteChannel out, int length)
-            throws IOException {
+    public int getBytes(int index, GatheringByteChannel out, int length) throws IOException {
         checkIndex(index, length);
         return buffer.getBytes(index + adjustment, out, length);
     }
 
     @Override
-    public int setBytes(int index, InputStream in, int length)
-            throws IOException {
+    public int setBytes(int index, InputStream in, int length) throws IOException {
         checkIndex(index, length);
         return buffer.setBytes(index + adjustment, in, length);
     }
 
     @Override
-    public int setBytes(int index, ScatteringByteChannel in, int length)
-            throws IOException {
+    public int setBytes(int index, ScatteringByteChannel in, int length) throws IOException {
         checkIndex(index, length);
         return buffer.setBytes(index + adjustment, in, length);
     }
 
     @Override
-    public boolean hasNioBuffer() {
-        return buffer.hasNioBuffer();
+    public int nioBufferCount() {
+        return buffer.nioBufferCount();
     }
 
     @Override
@@ -258,72 +263,34 @@ public class SlicedByteBuf extends AbstractByteBuf implements WrappedByteBuf {
     }
 
     @Override
-    public boolean hasNioBuffers() {
-        return buffer.hasNioBuffers();
-    }
-
-    @Override
     public ByteBuffer[] nioBuffers(int index, int length) {
         checkIndex(index, length);
-        return buffer.nioBuffers(index, length);
+        return buffer.nioBuffers(index + adjustment, length);
     }
 
-    private void checkIndex(int index) {
-        if (index < 0 || index >= capacity()) {
-            throw new IndexOutOfBoundsException("Invalid index: " + index
-                    + ", maximum is " + capacity());
-        }
+    @Override
+    public ByteBuffer internalNioBuffer(int index, int length) {
+        checkIndex(index, length);
+        return buffer.internalNioBuffer(index + adjustment, length).duplicate();
     }
 
-    private void checkIndex(int startIndex, int length) {
-        if (length < 0) {
-            throw new IllegalArgumentException(
-                    "length is negative: " + length);
-        }
-        if (startIndex < 0) {
-            throw new IndexOutOfBoundsException("startIndex cannot be negative");
-        }
-        if (startIndex + length > capacity()) {
-            throw new IndexOutOfBoundsException("Index too big - Bytes needed: "
-                    + (startIndex + length) + ", maximum is " + capacity());
+    @Override
+    public int forEachByte(int index, int length, ByteBufProcessor processor) {
+        int ret = buffer.forEachByte(index + adjustment, length, processor);
+        if (ret >= adjustment) {
+            return ret - adjustment;
+        } else {
+            return -1;
         }
     }
 
     @Override
-    public Unsafe unsafe() {
-        return unsafe;
-    }
-
-    private final class SlicedUnsafe implements Unsafe {
-
-        @Override
-        public ByteBuffer nioBuffer() {
-            return buffer.nioBuffer(adjustment, length);
-        }
-
-        @Override
-        public ByteBuffer[] nioBuffers() {
-            return buffer.nioBuffers(adjustment, length);
-        }
-
-        @Override
-        public ByteBuf newBuffer(int initialCapacity) {
-            return buffer.unsafe().newBuffer(initialCapacity);
-        }
-
-        @Override
-        public void discardSomeReadBytes() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void acquire() {
-            buffer.unsafe().acquire();
-        }
-
-        @Override
-        public void release() {
-            buffer.unsafe().release();
+    public int forEachByteDesc(int index, int length, ByteBufProcessor processor) {
+        int ret = buffer.forEachByteDesc(index + adjustment, length, processor);
+        if (ret >= adjustment) {
+            return ret - adjustment;
+        } else {
+            return -1;
         }
     }
 }

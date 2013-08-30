@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -16,9 +16,9 @@
 package io.netty.handler.codec.spdy;
 
 /**
- * A SPDY Protocol GOAWAY Control Frame
+ * A SPDY Protocol GOAWAY Frame
  */
-public interface SpdyGoAwayFrame extends SpdyControlFrame {
+public interface SpdyGoAwayFrame extends SpdyFrame {
 
     /**
      * Returns the Last-good-stream-ID of this frame.
@@ -29,7 +29,7 @@ public interface SpdyGoAwayFrame extends SpdyControlFrame {
      * Sets the Last-good-stream-ID of this frame.  The Last-good-stream-ID
      * cannot be negative.
      */
-    void setLastGoodStreamId(int lastGoodStreamId);
+    SpdyGoAwayFrame setLastGoodStreamId(int lastGoodStreamId);
 
     /**
      * Returns the status of this frame.
@@ -39,5 +39,5 @@ public interface SpdyGoAwayFrame extends SpdyControlFrame {
     /**
      * Sets the status of this frame.
      */
-    void setStatus(SpdySessionStatus status);
+    SpdyGoAwayFrame setStatus(SpdySessionStatus status);
 }

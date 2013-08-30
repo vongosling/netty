@@ -17,17 +17,18 @@ package io.netty.channel.socket;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelPromise;
 
 import java.net.InetSocketAddress;
 import java.net.Socket;
 
 /**
- * A TCP/IP socket {@link Channel} which was either accepted by
- * {@link ServerSocketChannel} or created by {@link ClientSocketChannelFactory}.
- * @apiviz.landmark
- * @apiviz.composedOf io.netty.channel.socket.SocketChannelConfig
+ * A TCP/IP socket {@link Channel}.
  */
 public interface SocketChannel extends Channel {
+    @Override
+    ServerSocketChannel parent();
+
     @Override
     SocketChannelConfig config();
     @Override
@@ -51,4 +52,11 @@ public interface SocketChannel extends Channel {
      * @see Socket#shutdownOutput()
      */
     ChannelFuture shutdownOutput();
+
+    /**
+     * @see Socket#shutdownOutput()
+     *
+     * Will notify the given {@link ChannelPromise}
+     */
+    ChannelFuture shutdownOutput(ChannelPromise future);
 }

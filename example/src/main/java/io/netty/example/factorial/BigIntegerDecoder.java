@@ -21,6 +21,7 @@ import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.CorruptedFrameException;
 
 import java.math.BigInteger;
+import java.util.List;
 
 /**
  * Decodes the binary representation of a {@link BigInteger} prepended
@@ -28,13 +29,13 @@ import java.math.BigInteger;
  * {@link BigInteger} instance.  For example, { 'F', 0, 0, 0, 1, 42 } will be
  * decoded into new BigInteger("42").
  */
-public class BigIntegerDecoder extends ByteToMessageDecoder<BigInteger> {
+public class BigIntegerDecoder extends ByteToMessageDecoder {
 
     @Override
-    public BigInteger decode(ChannelHandlerContext ctx, ByteBuf in) {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
         // Wait until the length prefix is available.
         if (in.readableBytes() < 5) {
-            return null;
+            return;
         }
 
         in.markReaderIndex();
@@ -51,13 +52,13 @@ public class BigIntegerDecoder extends ByteToMessageDecoder<BigInteger> {
         int dataLength = in.readInt();
         if (in.readableBytes() < dataLength) {
             in.resetReaderIndex();
-            return null;
+            return;
         }
 
         // Convert the received data into a new BigInteger.
         byte[] decoded = new byte[dataLength];
         in.readBytes(decoded);
 
-        return new BigInteger(decoded);
+        out.add(new BigInteger(decoded));
     }
 }

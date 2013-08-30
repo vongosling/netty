@@ -15,29 +15,46 @@
  */
 package io.netty.channel.local;
 
-import io.netty.channel.EventExecutor;
 import io.netty.channel.MultithreadEventLoopGroup;
-import io.netty.channel.ChannelTaskScheduler;
+import io.netty.util.concurrent.EventExecutor;
 
+import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 
+/**
+ * {@link MultithreadEventLoopGroup} which must be used for the local transport.
+ */
 public class LocalEventLoopGroup extends MultithreadEventLoopGroup {
 
+    /**
+     * Create a new instance with the default number of threads.
+     */
     public LocalEventLoopGroup() {
         this(0);
     }
 
+    /**
+     * Create a new instance
+     *
+     * @param nThreads          the number of threads to use
+     */
     public LocalEventLoopGroup(int nThreads) {
         this(nThreads, null);
     }
 
+    /**
+     * Create a new instance
+     *
+     * @param nThreads          the number of threads to use
+     * @param threadFactory     the {@link ThreadFactory} or {@code null} to use the default
+     */
     public LocalEventLoopGroup(int nThreads, ThreadFactory threadFactory) {
         super(nThreads, threadFactory);
     }
 
     @Override
     protected EventExecutor newChild(
-            ThreadFactory threadFactory, ChannelTaskScheduler scheduler, Object... args) throws Exception {
-        return new LocalEventLoop(this, threadFactory, scheduler);
+            Executor executor, Object... args) throws Exception {
+        return new LocalEventLoop(this, executor);
     }
 }

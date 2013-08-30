@@ -15,22 +15,22 @@
  */
 package io.netty.testsuite.transport.socket;
 
-import static org.junit.Assert.*;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundByteHandlerAdapter;
-import io.netty.channel.ChannelInputShutdownEvent;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.channel.socket.ChannelInputShutdownEvent;
 import io.netty.channel.socket.SocketChannel;
+import org.junit.Test;
 
 import java.net.Socket;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.junit.Test;
+import static org.junit.Assert.*;
 
 public class SocketShutdownOutputByPeerTest extends AbstractServerSocketTest {
 
@@ -64,6 +64,7 @@ public class SocketShutdownOutputByPeerTest extends AbstractServerSocketTest {
             assertTrue(h.ch.isInputShutdown());
             assertFalse(h.ch.isOutputShutdown());
             assertEquals(1, h.closure.getCount());
+            Thread.sleep(100);
             assertEquals(1, h.halfClosureCount.intValue());
         } finally {
             s.close();
@@ -101,15 +102,16 @@ public class SocketShutdownOutputByPeerTest extends AbstractServerSocketTest {
             assertTrue(h.ch.isOutputShutdown());
 
             assertEquals(1, h.halfClosure.getCount());
+            Thread.sleep(100);
             assertEquals(0, h.halfClosureCount.intValue());
         } finally {
             s.close();
         }
     }
 
-    private static class TestHandler extends ChannelInboundByteHandlerAdapter {
+    private static class TestHandler extends SimpleChannelInboundHandler<ByteBuf> {
         volatile SocketChannel ch;
-        final BlockingQueue<Byte> queue = new SynchronousQueue<Byte>();
+        final BlockingQueue<Byte> queue = new LinkedBlockingQueue<Byte>();
         final CountDownLatch halfClosure = new CountDownLatch(1);
         final CountDownLatch closure = new CountDownLatch(1);
         final AtomicInteger halfClosureCount = new AtomicInteger();
@@ -125,8 +127,8 @@ public class SocketShutdownOutputByPeerTest extends AbstractServerSocketTest {
         }
 
         @Override
-        public void inboundBufferUpdated(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-            queue.offer(in.readByte());
+        public void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) throws Exception {
+            queue.offer(msg.readByte());
         }
 
         @Override

@@ -49,7 +49,9 @@ import io.netty.handler.codec.http.HttpResponseStatus;
  * </tr>
  * </table>
  */
-public class RtspResponseDecoder extends RtspMessageDecoder {
+public class RtspResponseDecoder extends RtspObjectDecoder {
+
+    private static final HttpResponseStatus UNKNOWN_STATUS = new HttpResponseStatus(999, "Unknown");
 
     /**
      * Creates a new instance with the default
@@ -72,6 +74,11 @@ public class RtspResponseDecoder extends RtspMessageDecoder {
         return new DefaultHttpResponse(
                 RtspVersions.valueOf(initialLine[0]),
                 new HttpResponseStatus(Integer.valueOf(initialLine[1]), initialLine[2]));
+    }
+
+    @Override
+    protected HttpMessage createInvalidMessage() {
+        return new DefaultHttpResponse(RtspVersions.RTSP_1_0, UNKNOWN_STATUS);
     }
 
     @Override

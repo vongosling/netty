@@ -15,15 +15,19 @@
  */
 package io.netty.channel.socket;
 
-import static io.netty.channel.ChannelOption.*;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.DefaultChannelConfig;
-import io.netty.util.NetworkConstants;
+import io.netty.channel.MessageSizeEstimator;
+import io.netty.channel.RecvByteBufAllocator;
+import io.netty.util.NetUtil;
 
 import java.net.ServerSocket;
 import java.net.SocketException;
 import java.util.Map;
+
+import static io.netty.channel.ChannelOption.*;
 
 /**
  * The default {@link ServerSocketChannelConfig} implementation.
@@ -31,17 +35,18 @@ import java.util.Map;
 public class DefaultServerSocketChannelConfig extends DefaultChannelConfig
                                               implements ServerSocketChannelConfig {
 
-    private final ServerSocket socket;
-    private volatile int backlog = NetworkConstants.SOMAXCONN;
+    protected final ServerSocket javaSocket;
+    private volatile int backlog = NetUtil.SOMAXCONN;
 
     /**
      * Creates a new instance.
      */
-    public DefaultServerSocketChannelConfig(ServerSocket socket) {
-        if (socket == null) {
-            throw new NullPointerException("socket");
+    public DefaultServerSocketChannelConfig(ServerSocketChannel channel, ServerSocket javaSocket) {
+        super(channel);
+        if (javaSocket == null) {
+            throw new NullPointerException("javaSocket");
         }
-        this.socket = socket;
+        this.javaSocket = javaSocket;
     }
 
     @Override
@@ -49,6 +54,7 @@ public class DefaultServerSocketChannelConfig extends DefaultChannelConfig
         return getOptions(super.getOptions(), SO_RCVBUF, SO_REUSEADDR, SO_BACKLOG);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public <T> T getOption(ChannelOption<T> option) {
         if (option == SO_RCVBUF) {
@@ -84,42 +90,45 @@ public class DefaultServerSocketChannelConfig extends DefaultChannelConfig
     @Override
     public boolean isReuseAddress() {
         try {
-            return socket.getReuseAddress();
+            return javaSocket.getReuseAddress();
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
     }
 
     @Override
-    public void setReuseAddress(boolean reuseAddress) {
+    public ServerSocketChannelConfig setReuseAddress(boolean reuseAddress) {
         try {
-            socket.setReuseAddress(reuseAddress);
+            javaSocket.setReuseAddress(reuseAddress);
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
+        return this;
     }
 
     @Override
     public int getReceiveBufferSize() {
         try {
-            return socket.getReceiveBufferSize();
+            return javaSocket.getReceiveBufferSize();
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
     }
 
     @Override
-    public void setReceiveBufferSize(int receiveBufferSize) {
+    public ServerSocketChannelConfig setReceiveBufferSize(int receiveBufferSize) {
         try {
-            socket.setReceiveBufferSize(receiveBufferSize);
+            javaSocket.setReceiveBufferSize(receiveBufferSize);
         } catch (SocketException e) {
             throw new ChannelException(e);
         }
+        return this;
     }
 
     @Override
-    public void setPerformancePreferences(int connectionTime, int latency, int bandwidth) {
-        socket.setPerformancePreferences(connectionTime, latency, bandwidth);
+    public ServerSocketChannelConfig setPerformancePreferences(int connectionTime, int latency, int bandwidth) {
+        javaSocket.setPerformancePreferences(connectionTime, latency, bandwidth);
+        return this;
     }
 
     @Override
@@ -128,10 +137,65 @@ public class DefaultServerSocketChannelConfig extends DefaultChannelConfig
     }
 
     @Override
-    public void setBacklog(int backlog) {
+    public ServerSocketChannelConfig setBacklog(int backlog) {
         if (backlog < 0) {
             throw new IllegalArgumentException("backlog: " + backlog);
         }
         this.backlog = backlog;
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis) {
+        super.setConnectTimeoutMillis(connectTimeoutMillis);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead) {
+        super.setMaxMessagesPerRead(maxMessagesPerRead);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setWriteSpinCount(int writeSpinCount) {
+        super.setWriteSpinCount(writeSpinCount);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setAllocator(ByteBufAllocator allocator) {
+        super.setAllocator(allocator);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setRecvByteBufAllocator(RecvByteBufAllocator allocator) {
+        super.setRecvByteBufAllocator(allocator);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setAutoRead(boolean autoRead) {
+        super.setAutoRead(autoRead);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setWriteBufferHighWaterMark(int writeBufferHighWaterMark) {
+        super.setWriteBufferHighWaterMark(writeBufferHighWaterMark);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark) {
+        super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
+        return this;
+    }
+
+    @Override
+    public ServerSocketChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator) {
+        super.setMessageSizeEstimator(estimator);
+        return this;
     }
 }

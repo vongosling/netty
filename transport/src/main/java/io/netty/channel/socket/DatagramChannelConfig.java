@@ -15,7 +15,11 @@
  */
 package io.netty.channel.socket;
 
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelConfig;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.MessageSizeEstimator;
+import io.netty.channel.RecvByteBufAllocator;
 
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -33,23 +37,25 @@ import java.net.StandardSocketOptions;
  * <tr>
  * <th>Name</th><th>Associated setter method</th>
  * </tr><tr>
- * <td>{@code "broadcast"}</td><td>{@link #setBroadcast(boolean)}</td>
+ * <td>{@link ChannelOption#SO_BROADCAST}</td><td>{@link #setBroadcast(boolean)}</td>
  * </tr><tr>
- * <td>{@code "interface"}</td><td>{@link #setInterface(InetAddress)}</td>
+ * <td>{@link ChannelOption#IP_MULTICAST_ADDR}</td><td>{@link #setInterface(InetAddress)}</td>
  * </tr><tr>
- * <td>{@code "loopbackModeDisabled"}</td><td>{@link #setLoopbackModeDisabled(boolean)}</td>
+ * <td>{@link ChannelOption#IP_MULTICAST_LOOP_DISABLED}</td>
+ * <td>{@link #setLoopbackModeDisabled(boolean)}</td>
  * </tr><tr>
- * <td>{@code "networkInterface"}</td><td>{@link #setNetworkInterface(NetworkInterface)}</td>
+ * <td>{@link ChannelOption#IP_MULTICAST_IF}</td>
+ * <td>{@link #setNetworkInterface(NetworkInterface)}</td>
  * </tr><tr>
- * <td>{@code "reuseAddress"}</td><td>{@link #setReuseAddress(boolean)}</td>
+ * <td>{@link ChannelOption#SO_REUSEADDR}</td><td>{@link #setReuseAddress(boolean)}</td>
  * </tr><tr>
- * <td>{@code "receiveBufferSize"}</td><td>{@link #setReceiveBufferSize(int)}</td>
+ * <td>{@link ChannelOption#SO_RCVBUF}</td><td>{@link #setReceiveBufferSize(int)}</td>
  * </tr><tr>
- * <td>{@code "sendBufferSize"}</td><td>{@link #setSendBufferSize(int)}</td>
+ * <td>{@link ChannelOption#SO_SNDBUF}</td><td>{@link #setSendBufferSize(int)}</td>
  * </tr><tr>
- * <td>{@code "timeToLive"}</td><td>{@link #setTimeToLive(int)}</td>
+ * <td>{@link ChannelOption#IP_MULTICAST_TTL}</td><td>{@link #setTimeToLive(int)}</td>
  * </tr><tr>
- * <td>{@code "trafficClass"}</td><td>{@link #setTrafficClass(int)}</td>
+ * <td>{@link ChannelOption#IP_TOS}</td><td>{@link #setTrafficClass(int)}</td>
  * </tr>
  * </table>
  */
@@ -63,7 +69,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_SNDBUF} option.
      */
-    void setSendBufferSize(int sendBufferSize);
+    DatagramChannelConfig setSendBufferSize(int sendBufferSize);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_RCVBUF} option.
@@ -73,11 +79,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_RCVBUF} option.
      */
-    void setReceiveBufferSize(int receiveBufferSize);
-
-    int getReceivePacketSize();
-
-    void setReceivePacketSize(int receivePacketSize);
+    DatagramChannelConfig setReceiveBufferSize(int receiveBufferSize);
 
     /**
      * Gets the {@link StandardSocketOptions#IP_TOS} option.
@@ -87,7 +89,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#IP_TOS} option.
      */
-    void setTrafficClass(int trafficClass);
+    DatagramChannelConfig setTrafficClass(int trafficClass);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_REUSEADDR} option.
@@ -97,7 +99,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Gets the {@link StandardSocketOptions#SO_REUSEADDR} option.
      */
-    void setReuseAddress(boolean reuseAddress);
+    DatagramChannelConfig setReuseAddress(boolean reuseAddress);
 
     /**
      * Gets the {@link StandardSocketOptions#SO_BROADCAST} option.
@@ -107,7 +109,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#SO_BROADCAST} option.
      */
-    void setBroadcast(boolean broadcast);
+    DatagramChannelConfig setBroadcast(boolean broadcast);
 
     /**
      * Gets the {@link StandardSocketOptions#IP_MULTICAST_LOOP} option.
@@ -122,7 +124,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
      * @param loopbackModeDisabled
      *        {@code true} if and only if the loopback mode has been disabled
      */
-    void setLoopbackModeDisabled(boolean loopbackModeDisabled);
+    DatagramChannelConfig setLoopbackModeDisabled(boolean loopbackModeDisabled);
 
     /**
      * Gets the {@link StandardSocketOptions#IP_MULTICAST_TTL} option.
@@ -132,7 +134,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#IP_MULTICAST_TTL} option.
      */
-    void setTimeToLive(int ttl);
+    DatagramChannelConfig setTimeToLive(int ttl);
 
     /**
      * Gets the address of the network interface used for multicast packets.
@@ -142,7 +144,7 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Sets the address of the network interface used for multicast packets.
      */
-    void setInterface(InetAddress interfaceAddress);
+    DatagramChannelConfig setInterface(InetAddress interfaceAddress);
 
     /**
      * Gets the {@link StandardSocketOptions#IP_MULTICAST_IF} option.
@@ -152,5 +154,26 @@ public interface DatagramChannelConfig extends ChannelConfig {
     /**
      * Sets the {@link StandardSocketOptions#IP_MULTICAST_IF} option.
      */
-    void setNetworkInterface(NetworkInterface networkInterface);
+    DatagramChannelConfig setNetworkInterface(NetworkInterface networkInterface);
+
+    @Override
+    DatagramChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead);
+
+    @Override
+    DatagramChannelConfig setWriteSpinCount(int writeSpinCount);
+
+    @Override
+    DatagramChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis);
+
+    @Override
+    DatagramChannelConfig setAllocator(ByteBufAllocator allocator);
+
+    @Override
+    DatagramChannelConfig setRecvByteBufAllocator(RecvByteBufAllocator allocator);
+
+    @Override
+    DatagramChannelConfig setAutoRead(boolean autoRead);
+
+    @Override
+    DatagramChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
 }

@@ -52,9 +52,6 @@ import java.util.Map;
  * integer parameter.
  *
  * @see QueryStringEncoder
- *
- * @apiviz.stereotype utility
- * @apiviz.has        io.netty.handler.codec.http.HttpRequest oneway - - decodes
  */
 public class QueryStringDecoder {
 
@@ -106,7 +103,7 @@ public class QueryStringDecoder {
      */
     public QueryStringDecoder(String uri, Charset charset, boolean hasPath, int maxParams) {
         if (uri == null) {
-            throw new NullPointerException("uri");
+            throw new NullPointerException("getUri");
         }
         if (charset == null) {
             throw new NullPointerException("charset");
@@ -145,7 +142,7 @@ public class QueryStringDecoder {
      */
     public QueryStringDecoder(URI uri, Charset charset, int maxParams) {
         if (uri == null) {
-            throw new NullPointerException("uri");
+            throw new NullPointerException("getUri");
         }
         if (charset == null) {
             throw new NullPointerException("charset");
@@ -163,19 +160,18 @@ public class QueryStringDecoder {
             hasPath = false;
         }
         // Also take care of cut of things like "http://localhost"
-        String newUri = rawPath + "?" + uri.getRawQuery();
+        String newUri = rawPath + '?' + uri.getRawQuery();
 
         // http://en.wikipedia.org/wiki/Query_string
         this.uri = newUri.replace(';', '&');
         this.charset = charset;
         this.maxParams = maxParams;
-
     }
 
     /**
      * Returns the decoded path string of the URI.
      */
-    public String getPath() {
+    public String path() {
         if (path == null) {
             if (!hasPath) {
                 return path = "";
@@ -194,10 +190,10 @@ public class QueryStringDecoder {
     /**
      * Returns the decoded key-value parameter pairs of the URI.
      */
-    public Map<String, List<String>> getParameters() {
+    public Map<String, List<String>> parameters() {
         if (params == null) {
             if (hasPath) {
-                int pathLength = getPath().length();
+                int pathLength = path().length();
                 if (uri.length() == pathLength) {
                     return Collections.emptyMap();
                 }
@@ -295,7 +291,7 @@ public class QueryStringDecoder {
      * {@code 0xC3 0xA9}) is encoded as {@code %C3%A9} or {@code %c3%a9}.
      * <p>
      * This is essentially equivalent to calling
-     *   <code>{@link URLDecoder#decode(String, String) URLDecoder.decode}(s, charset.name())</code>
+     *   {@link URLDecoder#decode(String, String) URLDecoder.decode(s, charset.name())}
      * except that it's over 2x faster and generates less garbage for the GC.
      * Actually this function doesn't allocate any memory if there's nothing
      * to decode, the argument itself is returned.
@@ -346,7 +342,8 @@ public class QueryStringDecoder {
                     if (c == '%') {
                         buf[pos++] = '%';  // "%%" -> "%"
                         break;
-                    } else if (i == size - 1) {
+                    }
+                    if (i == size - 1) {
                         throw new IllegalArgumentException("partial escape"
                                 + " sequence at end of string: " + s);
                     }

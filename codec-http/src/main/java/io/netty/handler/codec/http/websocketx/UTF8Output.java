@@ -35,6 +35,8 @@
  */
 package io.netty.handler.codec.http.websocketx;
 
+import io.netty.buffer.ByteBuf;
+
 /**
  * Checks UTF8 bytes for validity before converting it into a string
  */
@@ -60,14 +62,21 @@ final class UTF8Output {
             12, 36, 12, 12, 12, 36, 12, 12, 12, 12, 12, 36, 12, 36, 12, 12, 12, 36, 12, 12, 12, 12,
             12, 12, 12, 12, 12, 12 };
 
+    @SuppressWarnings("RedundantFieldInitialization")
     private int state = UTF8_ACCEPT;
     private int codep;
 
     private final StringBuilder stringBuilder;
 
-    UTF8Output(byte[] bytes) {
-        stringBuilder = new StringBuilder(bytes.length);
-        write(bytes);
+    UTF8Output(ByteBuf buffer) {
+        stringBuilder = new StringBuilder(buffer.readableBytes());
+        write(buffer);
+    }
+
+    public void write(ByteBuf buffer) {
+        for (int i = buffer.readerIndex(); i < buffer.writerIndex(); i++) {
+            write(buffer.getByte(i));
+        }
     }
 
     public void write(byte[] bytes) {

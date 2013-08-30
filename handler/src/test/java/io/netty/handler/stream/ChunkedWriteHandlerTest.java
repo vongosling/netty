@@ -15,16 +15,14 @@
  */
 package io.netty.handler.stream;
 
-import static org.junit.Assert.*;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.MessageBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.embedded.EmbeddedByteChannel;
-import io.netty.channel.embedded.EmbeddedMessageChannel;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.CharsetUtil;
-
+import org.junit.Test;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -32,9 +30,7 @@ import java.io.IOException;
 import java.nio.channels.Channels;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import junit.framework.Assert;
-
-import org.junit.Test;
+import static org.junit.Assert.*;
 
 public class ChunkedWriteHandlerTest {
     private static final byte[] BYTES = new byte[1024 * 64];
@@ -70,18 +66,19 @@ public class ChunkedWriteHandlerTest {
     public void testChunkedStream() {
         check(new ChunkedStream(new ByteArrayInputStream(BYTES)));
 
-        check(new ChunkedStream(new ByteArrayInputStream(BYTES)), new ChunkedStream(new ByteArrayInputStream(BYTES)), new ChunkedStream(new ByteArrayInputStream(BYTES)));
-
+        check(new ChunkedStream(new ByteArrayInputStream(BYTES)),
+                new ChunkedStream(new ByteArrayInputStream(BYTES)),
+                new ChunkedStream(new ByteArrayInputStream(BYTES)));
     }
 
     @Test
     public void testChunkedNioStream() {
         check(new ChunkedNioStream(Channels.newChannel(new ByteArrayInputStream(BYTES))));
 
-        check(new ChunkedNioStream(Channels.newChannel(new ByteArrayInputStream(BYTES))), new ChunkedNioStream(Channels.newChannel(new ByteArrayInputStream(BYTES))), new ChunkedNioStream(Channels.newChannel(new ByteArrayInputStream(BYTES))));
-
+        check(new ChunkedNioStream(Channels.newChannel(new ByteArrayInputStream(BYTES))),
+                new ChunkedNioStream(Channels.newChannel(new ByteArrayInputStream(BYTES))),
+                new ChunkedNioStream(Channels.newChannel(new ByteArrayInputStream(BYTES))));
     }
-
 
     @Test
     public void testChunkedFile() throws IOException {
@@ -98,12 +95,12 @@ public class ChunkedWriteHandlerTest {
     }
 
     // Test case which shows that there is not a bug like stated here:
-    // http://stackoverflow.com/questions/10409241/why-is-close-channelfuturelistener-not-notified/10426305#comment14126161_10426305
+    // http://stackoverflow.com/a/10426305
     @Test
     public void testListenerNotifiedWhenIsEnd() {
         ByteBuf buffer = Unpooled.copiedBuffer("Test", CharsetUtil.ISO_8859_1);
 
-        ChunkedByteInput input = new ChunkedByteInput() {
+        ChunkedInput<ByteBuf> input = new ChunkedInput<ByteBuf>() {
             private boolean done;
             private final ByteBuf buffer = Unpooled.copiedBuffer("Test", CharsetUtil.ISO_8859_1);
 
@@ -118,13 +115,12 @@ public class ChunkedWriteHandlerTest {
             }
 
             @Override
-            public boolean readChunk(ByteBuf buffer) throws Exception {
+            public ByteBuf readChunk(ChannelHandlerContext ctx) throws Exception {
                 if (done) {
-                    return false;
+                    return null;
                 }
                 done = true;
-                buffer.writeBytes(this.buffer.duplicate());
-                return true;
+                return buffer.duplicate().retain();
             }
         };
 
@@ -137,9 +133,8 @@ public class ChunkedWriteHandlerTest {
             }
         };
 
-        EmbeddedByteChannel ch = new EmbeddedByteChannel(new ChunkedWriteHandler());
-        ch.outboundMessageBuffer().add(input);
-        ch.flush().addListener(listener).syncUninterruptibly();
+        EmbeddedChannel ch = new EmbeddedChannel(new ChunkedWriteHandler());
+        ch.writeAndFlush(input).addListener(listener).syncUninterruptibly();
         ch.checkException();
         ch.finish();
 
@@ -148,13 +143,12 @@ public class ChunkedWriteHandlerTest {
 
         assertEquals(buffer, ch.readOutbound());
         assertNull(ch.readOutbound());
-
     }
 
     @Test
     public void testChunkedMessageInput() {
 
-        ChunkedMessageInput<Object> input = new ChunkedMessageInput<Object>() {
+        ChunkedInput<Object> input = new ChunkedInput<Object>() {
             private boolean done;
 
             @Override
@@ -168,45 +162,42 @@ public class ChunkedWriteHandlerTest {
             }
 
             @Override
-            public boolean readChunk(MessageBuf<Object> buffer) throws Exception {
+            public Object readChunk(ChannelHandlerContext ctx) throws Exception {
                 if (done) {
                     return false;
                 }
                 done = true;
-                buffer.add(0);
-                return true;
+                return 0;
             }
         };
 
-        EmbeddedMessageChannel ch = new EmbeddedMessageChannel(new ChunkedWriteHandler());
-        ch.outboundMessageBuffer().add(input);
-        ch.flush().syncUninterruptibly();
+        EmbeddedChannel ch = new EmbeddedChannel(new ChunkedWriteHandler());
+        ch.writeAndFlush(input).syncUninterruptibly();
         ch.checkException();
         assertTrue(ch.finish());
 
         assertEquals(0, ch.readOutbound());
         assertNull(ch.readOutbound());
-
     }
 
     private static void check(ChunkedInput<?>... inputs) {
-        EmbeddedByteChannel ch = new EmbeddedByteChannel(new ChunkedWriteHandler());
+        EmbeddedChannel ch = new EmbeddedChannel(new ChunkedWriteHandler());
 
         for (ChunkedInput<?> input: inputs) {
             ch.writeOutbound(input);
         }
 
-        Assert.assertTrue(ch.finish());
+        assertTrue(ch.finish());
 
         int i = 0;
         int read = 0;
         for (;;) {
-            ByteBuf buffer = ch.readOutbound();
+            ByteBuf buffer = (ByteBuf) ch.readOutbound();
             if (buffer == null) {
                 break;
             }
-            while (buffer.readable()) {
-                Assert.assertEquals(BYTES[i++], buffer.readByte());
+            while (buffer.isReadable()) {
+                assertEquals(BYTES[i++], buffer.readByte());
                 read++;
                 if (i == BYTES.length) {
                     i = 0;
@@ -214,6 +205,6 @@ public class ChunkedWriteHandlerTest {
             }
         }
 
-        Assert.assertEquals(BYTES.length * inputs.length, read);
+        assertEquals(BYTES.length * inputs.length, read);
     }
 }

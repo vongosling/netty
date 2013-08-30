@@ -34,7 +34,7 @@ import java.io.Serializable;
  * This encoder is interoperable with the standard Java object streams such as
  * {@link ObjectInputStream} and {@link ObjectOutputStream}.
  */
-public class CompatibleObjectEncoder extends MessageToByteEncoder<Object> {
+public class CompatibleObjectEncoder extends MessageToByteEncoder<Serializable> {
 
     private static final AttributeKey<ObjectOutputStream> OOS =
             new AttributeKey<ObjectOutputStream>(CompatibleObjectEncoder.class.getName() + ".oos");
@@ -76,12 +76,7 @@ public class CompatibleObjectEncoder extends MessageToByteEncoder<Object> {
     }
 
     @Override
-    public boolean isEncodable(Object msg) throws Exception {
-        return msg instanceof Serializable;
-    }
-
-    @Override
-    public void encode(ChannelHandlerContext ctx, Object msg, ByteBuf out) throws Exception {
+    protected void encode(ChannelHandlerContext ctx, Serializable msg, ByteBuf out) throws Exception {
         Attribute<ObjectOutputStream> oosAttr = ctx.attr(OOS);
         ObjectOutputStream oos = oosAttr.get();
         if (oos == null) {
@@ -98,9 +93,6 @@ public class CompatibleObjectEncoder extends MessageToByteEncoder<Object> {
                 writtenObjects ++;
                 if (writtenObjects % resetInterval == 0) {
                     oos.reset();
-
-                    // Also discard the byproduct to avoid OOM on the sending side.
-                    out.unsafe().discardSomeReadBytes();
                 }
             }
 

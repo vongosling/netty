@@ -34,6 +34,12 @@ public enum WebSocketVersion {
     V00,
 
     /**
+     * <a href= "http://tools.ietf.org/html/draft-ietf-hybi-thewebsocketprotocol-07"
+     * >draft-ietf-hybi-thewebsocketprotocol- 07</a>
+     */
+    V07,
+
+    /**
      * <a href= "http://tools.ietf.org/html/draft-ietf-hybi-thewebsocketprotocol-10"
      * >draft-ietf-hybi-thewebsocketprotocol- 10</a>
      */
@@ -52,9 +58,14 @@ public enum WebSocketVersion {
     public String toHttpHeaderValue() {
         if (this == V00) {
             return "0";
-        } else if (this == V08) {
+        }
+        if (this == V07) {
+            return "7";
+        }
+        if (this == V08) {
             return "8";
-        } else if (this == V13) {
+        }
+        if (this == V13) {
             return "13";
         }
         throw new IllegalStateException("Unknown web socket version: " + this);

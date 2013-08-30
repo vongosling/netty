@@ -15,13 +15,30 @@
  */
 package io.netty.channel;
 
+import io.netty.util.concurrent.EventExecutorGroup;
+import io.netty.util.concurrent.SingleThreadEventExecutor;
+
+import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 
+/**
+ * Abstract base class for {@link EventLoop}'s that execute all its submitted tasks in a single thread.
+ *
+ */
 public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor implements EventLoop {
 
-    protected SingleThreadEventLoop(
-            EventLoopGroup parent, ThreadFactory threadFactory, ChannelTaskScheduler scheduler) {
-        super(parent, threadFactory, scheduler);
+    /**
+     * @see {@link SingleThreadEventExecutor#SingleThreadEventExecutor(EventExecutorGroup, ThreadFactory, boolean)}
+     */
+    protected SingleThreadEventLoop(EventLoopGroup parent, ThreadFactory threadFactory, boolean addTaskWakesUp) {
+        super(parent, threadFactory, addTaskWakesUp);
+    }
+
+    /**
+     * @see {@link SingleThreadEventExecutor#SingleThreadEventExecutor(EventExecutorGroup, Executor, boolean)}
+     */
+    protected SingleThreadEventLoop(EventLoopGroup parent, Executor executor, boolean addTaskWakesUp) {
+        super(parent, executor, addTaskWakesUp);
     }
 
     @Override
@@ -36,24 +53,19 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
 
     @Override
     public ChannelFuture register(Channel channel) {
-        if (channel == null) {
-            throw new NullPointerException("channel");
-        }
-        return register(channel, channel.newFuture());
+        return register(channel, channel.newPromise());
     }
 
     @Override
-    public ChannelFuture register(final Channel channel, final ChannelFuture future) {
-        if (inEventLoop()) {
-            channel.unsafe().register(this, future);
-        } else {
-            execute(new Runnable() {
-                @Override
-                public void run() {
-                    channel.unsafe().register(SingleThreadEventLoop.this, future);
-                }
-            });
+    public ChannelFuture register(final Channel channel, final ChannelPromise promise) {
+        if (channel == null) {
+            throw new NullPointerException("channel");
         }
-        return future;
+        if (promise == null) {
+            throw new NullPointerException("promise");
+        }
+
+        channel.unsafe().register(this, promise);
+        return promise;
     }
 }

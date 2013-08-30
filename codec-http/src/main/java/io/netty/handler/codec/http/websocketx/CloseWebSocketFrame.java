@@ -18,6 +18,7 @@ package io.netty.handler.codec.http.websocketx;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
+import io.netty.util.internal.EmptyArrays;
 
 /**
  * Web Socket Frame for closing the connection
@@ -28,11 +29,11 @@ public class CloseWebSocketFrame extends WebSocketFrame {
      * Creates a new empty close frame.
      */
     public CloseWebSocketFrame() {
-        setBinaryData(Unpooled.EMPTY_BUFFER);
+        super(Unpooled.buffer(0));
     }
 
     /**
-     * Creates a new empty close frame with closing status code and reason text
+     * Creates a new empty close frame with closing getStatus code and reason text
      *
      * @param statusCode
      *            Integer status code as per <a href="http://tools.ietf.org/html/rfc6455#section-7.4">RFC 6455</a>. For
@@ -45,7 +46,7 @@ public class CloseWebSocketFrame extends WebSocketFrame {
     }
 
     /**
-     * Creates a new close frame with no losing status code and no reason text
+     * Creates a new close frame with no losing getStatus code and no reason text
      *
      * @param finalFragment
      *            flag indicating if this frame is the final fragment
@@ -70,10 +71,11 @@ public class CloseWebSocketFrame extends WebSocketFrame {
      *            Reason text. Set to null if no text.
      */
     public CloseWebSocketFrame(boolean finalFragment, int rsv, int statusCode, String reasonText) {
-        setFinalFragment(finalFragment);
-        setRsv(rsv);
+        super(finalFragment, rsv, newBinaryData(statusCode, reasonText));
+    }
 
-        byte[] reasonBytes = new byte[0];
+    private static ByteBuf newBinaryData(int statusCode, String reasonText) {
+        byte[] reasonBytes = EmptyArrays.EMPTY_BYTES;
         if (reasonText != null) {
             reasonBytes = reasonText.getBytes(CharsetUtil.UTF_8);
         }
@@ -85,7 +87,7 @@ public class CloseWebSocketFrame extends WebSocketFrame {
         }
 
         binaryData.readerIndex(0);
-        setBinaryData(binaryData);
+        return binaryData;
     }
 
     /**
@@ -99,21 +101,15 @@ public class CloseWebSocketFrame extends WebSocketFrame {
      *            the content of the frame. Must be 2 byte integer followed by optional UTF-8 encoded string.
      */
     public CloseWebSocketFrame(boolean finalFragment, int rsv, ByteBuf binaryData) {
-        setFinalFragment(finalFragment);
-        setRsv(rsv);
-        if (binaryData == null) {
-            setBinaryData(Unpooled.EMPTY_BUFFER);
-        } else {
-            setBinaryData(binaryData);
-        }
+        super(finalFragment, rsv, binaryData);
     }
 
     /**
      * Returns the closing status code as per <a href="http://tools.ietf.org/html/rfc6455#section-7.4">RFC 6455</a>. If
-     * a status code is set, -1 is returned.
+     * a getStatus code is set, -1 is returned.
      */
-    public int getStatusCode() {
-        ByteBuf binaryData = getBinaryData();
+    public int statusCode() {
+        ByteBuf binaryData = content();
         if (binaryData == null || binaryData.capacity() == 0) {
             return -1;
         }
@@ -129,8 +125,8 @@ public class CloseWebSocketFrame extends WebSocketFrame {
      * Returns the reason text as per <a href="http://tools.ietf.org/html/rfc6455#section-7.4">RFC 6455</a> If a reason
      * text is not supplied, an empty string is returned.
      */
-    public String getReasonText() {
-        ByteBuf binaryData = getBinaryData();
+    public String reasonText() {
+        ByteBuf binaryData = content();
         if (binaryData == null || binaryData.capacity() <= 2) {
             return "";
         }
@@ -143,7 +139,24 @@ public class CloseWebSocketFrame extends WebSocketFrame {
     }
 
     @Override
-    public String toString() {
-        return getClass().getSimpleName();
+    public CloseWebSocketFrame copy() {
+        return new CloseWebSocketFrame(isFinalFragment(), rsv(), content().copy());
+    }
+
+    @Override
+    public CloseWebSocketFrame duplicate() {
+        return new CloseWebSocketFrame(isFinalFragment(), rsv(), content().duplicate());
+    }
+
+    @Override
+    public CloseWebSocketFrame retain() {
+        super.retain();
+        return this;
+    }
+
+    @Override
+    public CloseWebSocketFrame retain(int increment) {
+        super.retain(increment);
+        return this;
     }
 }

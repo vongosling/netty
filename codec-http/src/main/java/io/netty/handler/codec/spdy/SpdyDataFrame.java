@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -16,44 +16,38 @@
 package io.netty.handler.codec.spdy;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufHolder;
 import io.netty.buffer.Unpooled;
 
 /**
- * A SPDY Protocol Data Frame
+ * A SPDY Protocol DATA Frame
  */
-public interface SpdyDataFrame {
+public interface SpdyDataFrame extends ByteBufHolder, SpdyStreamFrame {
 
-    /**
-     * Returns the Stream-ID of this frame.
-     */
-    int getStreamId();
+    @Override
+    SpdyDataFrame setStreamId(int streamID);
 
-    /**
-     * Sets the Stream-ID of this frame.  The Stream-ID must be positive.
-     */
-    void setStreamId(int streamID);
-
-    /**
-     * Returns {@code true} if this frame is the last frame to be transmitted
-     * on the stream.
-     */
-    boolean isLast();
-
-    /**
-     * Sets if this frame is the last frame to be transmitted on the stream.
-     */
-    void setLast(boolean last);
+    @Override
+    SpdyDataFrame setLast(boolean last);
 
     /**
      * Returns the data payload of this frame.  If there is no data payload
      * {@link Unpooled#EMPTY_BUFFER} is returned.
-     */
-    ByteBuf getData();
-
-    /**
-     * Sets the data payload of this frame.  If {@code null} is specified,
-     * the data payload will be set to {@link Unpooled#EMPTY_BUFFER}.
+     *
      * The data payload cannot exceed 16777215 bytes.
      */
-    void setData(ByteBuf data);
+    @Override
+    ByteBuf content();
+
+    @Override
+    SpdyDataFrame copy();
+
+    @Override
+    SpdyDataFrame duplicate();
+
+    @Override
+    SpdyDataFrame retain();
+
+    @Override
+    SpdyDataFrame retain(int increment);
 }

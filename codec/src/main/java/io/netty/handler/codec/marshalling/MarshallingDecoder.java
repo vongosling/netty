@@ -19,11 +19,10 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.TooLongFrameException;
-
-import java.io.StreamCorruptedException;
-
 import org.jboss.marshalling.ByteInput;
 import org.jboss.marshalling.Unmarshaller;
+
+import java.io.StreamCorruptedException;
 /**
  * Decoder which MUST be used with {@link MarshallingEncoder}.
  *
@@ -59,9 +58,8 @@ public class MarshallingDecoder extends LengthFieldBasedFrameDecoder {
         this.provider = provider;
     }
 
-
     @Override
-    public Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+    protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
         ByteBuf frame = (ByteBuf) super.decode(ctx, in);
         if (frame == null) {
             return null;
@@ -83,7 +81,7 @@ public class MarshallingDecoder extends LengthFieldBasedFrameDecoder {
     }
 
     @Override
-    protected ByteBuf extractFrame(ByteBuf buffer, int index, int length) {
+    protected ByteBuf extractFrame(ChannelHandlerContext ctx, ByteBuf buffer, int index, int length) {
         return buffer.slice(index, length);
     }
 }

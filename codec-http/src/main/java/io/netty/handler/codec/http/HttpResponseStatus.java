@@ -19,7 +19,6 @@ package io.netty.handler.codec.http;
  * The response code and its description of HTTP or its derived protocols, such as
  * <a href="http://en.wikipedia.org/wiki/Real_Time_Streaming_Protocol">RTSP</a> and
  * <a href="http://en.wikipedia.org/wiki/Internet_Content_Adaptation_Protocol">ICAP</a>.
- * @apiviz.exclude
  */
 public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
 
@@ -234,6 +233,22 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
     public static final HttpResponseStatus UPGRADE_REQUIRED = new HttpResponseStatus(426, "Upgrade Required");
 
     /**
+     * 428 Precondition Required (RFC6585)
+     */
+    public static final HttpResponseStatus PRECONDITION_REQUIRED = new HttpResponseStatus(428, "Precondition Required");
+
+    /**
+     * 429 Too Many Requests (RFC6585)
+     */
+    public static final HttpResponseStatus TOO_MANY_REQUESTS = new HttpResponseStatus(429, "Too Many Requests");
+
+    /**
+     * 431 Request Header Fields Too Large (RFC6585)
+     */
+    public static final HttpResponseStatus REQUEST_HEADER_FIELDS_TOO_LARGE =
+            new HttpResponseStatus(431, "Request Header Fields Too Large");
+
+    /**
      * 500 Internal Server Error
      */
     public static final HttpResponseStatus INTERNAL_SERVER_ERROR =
@@ -282,8 +297,14 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
     public static final HttpResponseStatus NOT_EXTENDED = new HttpResponseStatus(510, "Not Extended");
 
     /**
+     * 511 Network Authentication Required (RFC6585)
+     */
+    public static final HttpResponseStatus NETWORK_AUTHENTICATION_REQUIRED =
+            new HttpResponseStatus(511, "Network Authentication Required");
+
+    /**
      * Returns the {@link HttpResponseStatus} represented by the specified code.
-     * If the specified code is a standard HTTP status code, a cached instance
+     * If the specified code is a standard HTTP getStatus code, a cached instance
      * will be returned.  Otherwise, a new instance will be returned.
      */
     public static HttpResponseStatus valueOf(int code) {
@@ -370,6 +391,12 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
             return UNORDERED_COLLECTION;
         case 426:
             return UPGRADE_REQUIRED;
+        case 428:
+            return PRECONDITION_REQUIRED;
+        case 429:
+            return TOO_MANY_REQUESTS;
+        case 431:
+            return REQUEST_HEADER_FIELDS_TOO_LARGE;
         case 500:
             return INTERNAL_SERVER_ERROR;
         case 501:
@@ -388,6 +415,8 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
             return INSUFFICIENT_STORAGE;
         case 510:
             return NOT_EXTENDED;
+        case 511:
+            return NETWORK_AUTHENTICATION_REQUIRED;
         }
 
         final String reasonPhrase;
@@ -445,22 +474,22 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
     }
 
     /**
-     * Returns the code of this status.
+     * Returns the code of this getStatus.
      */
-    public int getCode() {
+    public int code() {
         return code;
     }
 
     /**
-     * Returns the reason phrase of this status.
+     * Returns the reason phrase of this getStatus.
      */
-    public String getReasonPhrase() {
+    public String reasonPhrase() {
         return reasonPhrase;
     }
 
     @Override
     public int hashCode() {
-        return getCode();
+        return code();
     }
 
     @Override
@@ -469,12 +498,12 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
             return false;
         }
 
-        return getCode() == ((HttpResponseStatus) o).getCode();
+        return code() == ((HttpResponseStatus) o).code();
     }
 
     @Override
     public int compareTo(HttpResponseStatus o) {
-        return getCode() - o.getCode();
+        return code() - o.code();
     }
 
     @Override

@@ -17,14 +17,17 @@ package io.netty.handler.codec.compression;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFuture;
-import io.netty.handler.codec.ByteToByteEncoder;
+import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.MessageToByteEncoder;
 
 /**
  * Compresses a {@link ByteBuf} using the deflate algorithm.
- *
- * @apiviz.landmark
  */
-public abstract class ZlibEncoder extends ByteToByteEncoder {
+public abstract class ZlibEncoder extends MessageToByteEncoder<ByteBuf> {
+
+    protected ZlibEncoder() {
+        super(false);
+    }
 
     /**
      * Returns {@code true} if and only if the end of the compressed stream
@@ -32,8 +35,19 @@ public abstract class ZlibEncoder extends ByteToByteEncoder {
      */
     public abstract boolean isClosed();
 
+    /**
+     * Close this {@link ZlibEncoder} and so finish the encoding.
+     *
+     * The returned {@link ChannelFuture} will be notified once the
+     * operation completes.
+     */
     public abstract ChannelFuture close();
 
-    public abstract ChannelFuture close(ChannelFuture future);
+    /**
+     * Close this {@link ZlibEncoder} and so finish the encoding.
+     * The given {@link ChannelFuture} will be notified once the operation
+     * completes and will also be returned.
+     */
+    public abstract ChannelFuture close(ChannelPromise promise);
 
 }

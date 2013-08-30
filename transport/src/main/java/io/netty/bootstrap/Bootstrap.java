@@ -16,230 +16,218 @@
 package io.netty.bootstrap;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoopGroup;
-import io.netty.logging.InternalLogger;
-import io.netty.logging.InternalLoggerFactory;
+import io.netty.channel.ChannelPromise;
+import io.netty.util.AttributeKey;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.nio.channels.ClosedChannelException;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 
-public class Bootstrap {
+/**
+ * A {@link Bootstrap} that makes it easy to bootstrap a {@link Channel} to use
+ * for clients.
+ *
+ * <p>The {@link #bind()} methods are useful in combination with connectionless transports such as datagram (UDP).
+ * For regular TCP connections, please use the provided {@link #connect()} methods.</p>
+ */
+public final class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(Bootstrap.class);
 
-    private final Map<ChannelOption<?>, Object> options = new LinkedHashMap<ChannelOption<?>, Object>();
-    private EventLoopGroup group;
-    private Channel channel;
-    private ChannelHandler handler;
-    private SocketAddress localAddress;
-    private SocketAddress remoteAddress;
+    private volatile SocketAddress remoteAddress;
 
-    public Bootstrap group(EventLoopGroup group) {
-        if (group == null) {
-            throw new NullPointerException("group");
-        }
-        if (this.group != null) {
-            throw new IllegalStateException("group set already");
-        }
-        this.group = group;
-        return this;
+    public Bootstrap() { }
+
+    private Bootstrap(Bootstrap bootstrap) {
+        super(bootstrap);
+        remoteAddress = bootstrap.remoteAddress;
     }
 
-    public Bootstrap channel(Channel channel) {
-        if (channel == null) {
-            throw new NullPointerException("channel");
-        }
-        if (this.channel != null) {
-            throw new IllegalStateException("channel set already");
-        }
-        this.channel = channel;
-        return this;
-    }
-
-    public <T> Bootstrap option(ChannelOption<T> option, T value) {
-        if (option == null) {
-            throw new NullPointerException("option");
-        }
-        if (value == null) {
-            options.remove(option);
-        } else {
-            options.put(option, value);
-        }
-        return this;
-    }
-
-    public Bootstrap handler(ChannelHandler handler) {
-        if (handler == null) {
-            throw new NullPointerException("handler");
-        }
-        this.handler = handler;
-        return this;
-    }
-
-    public Bootstrap localAddress(SocketAddress localAddress) {
-        this.localAddress = localAddress;
-        return this;
-    }
-
-    public Bootstrap localAddress(int port) {
-        localAddress = new InetSocketAddress(port);
-        return this;
-    }
-
-    public Bootstrap localAddress(String host, int port) {
-        localAddress = new InetSocketAddress(host, port);
-        return this;
-    }
-
-    public Bootstrap localAddress(InetAddress host, int port) {
-        localAddress = new InetSocketAddress(host, port);
-        return this;
-    }
-
+    /**
+     * The {@link SocketAddress} to connect to once the {@link #connect()} method
+     * is called.
+     */
     public Bootstrap remoteAddress(SocketAddress remoteAddress) {
         this.remoteAddress = remoteAddress;
         return this;
     }
 
-    public Bootstrap remoteAddress(String host, int port) {
-        remoteAddress = new InetSocketAddress(host, port);
+    /**
+     * @see {@link #remoteAddress(SocketAddress)}
+     */
+    public Bootstrap remoteAddress(String inetHost, int inetPort) {
+        remoteAddress = new InetSocketAddress(inetHost, inetPort);
         return this;
     }
 
-    public Bootstrap remoteAddress(InetAddress host, int port) {
-        remoteAddress = new InetSocketAddress(host, port);
+    /**
+     * @see {@link #remoteAddress(SocketAddress)}
+     */
+    public Bootstrap remoteAddress(InetAddress inetHost, int inetPort) {
+        remoteAddress = new InetSocketAddress(inetHost, inetPort);
         return this;
     }
 
-    public ChannelFuture bind() {
-        validate();
-        return bind(channel.newFuture());
-    }
-
-    public ChannelFuture bind(ChannelFuture future) {
-        validate(future);
-        if (localAddress == null) {
-            throw new IllegalStateException("localAddress not set");
-        }
-
-        try {
-            init();
-        } catch (Throwable t) {
-            future.setFailure(t);
-            return future;
-        }
-
-        if (!ensureOpen(future)) {
-            return future;
-        }
-
-        return channel.bind(localAddress, future).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
-    }
-
+    /**
+     * Connect a {@link Channel} to the remote peer.
+     */
     public ChannelFuture connect() {
         validate();
-        return connect(channel.newFuture());
-    }
-
-    public ChannelFuture connect(ChannelFuture future) {
-        validate(future);
+        SocketAddress remoteAddress = this.remoteAddress;
         if (remoteAddress == null) {
             throw new IllegalStateException("remoteAddress not set");
         }
 
-        try {
-            init();
-        } catch (Throwable t) {
-            future.setFailure(t);
-            return future;
-        }
-
-        if (!ensureOpen(future)) {
-            return future;
-        }
-
-        if (localAddress == null) {
-            channel.connect(remoteAddress, future);
-        } else {
-            channel.connect(remoteAddress, localAddress, future);
-        }
-        return future.addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
+        return doConnect(remoteAddress, localAddress());
     }
 
-    private void init() throws Exception {
-        if (channel.isActive()) {
-            throw new IllegalStateException("channel already active:: " + channel);
-        }
-        if (channel.isRegistered()) {
-            throw new IllegalStateException("channel already registered: " + channel);
-        }
-        if (!channel.isOpen()) {
-            throw new ClosedChannelException();
+    /**
+     * Connect a {@link Channel} to the remote peer.
+     */
+    public ChannelFuture connect(String inetHost, int inetPort) {
+        return connect(new InetSocketAddress(inetHost, inetPort));
+    }
+
+    /**
+     * Connect a {@link Channel} to the remote peer.
+     */
+    public ChannelFuture connect(InetAddress inetHost, int inetPort) {
+        return connect(new InetSocketAddress(inetHost, inetPort));
+    }
+
+    /**
+     * Connect a {@link Channel} to the remote peer.
+     */
+    public ChannelFuture connect(SocketAddress remoteAddress) {
+        if (remoteAddress == null) {
+            throw new NullPointerException("remoteAddress");
         }
 
-        ChannelPipeline p = channel.pipeline();
-        p.addLast(handler);
+        validate();
+        return doConnect(remoteAddress, localAddress());
+    }
 
-        for (Entry<ChannelOption<?>, Object> e: options.entrySet()) {
-            try {
-                if (!channel.config().setOption((ChannelOption<Object>) e.getKey(), e.getValue())) {
-                    logger.warn("Unknown channel option: " + e);
+    /**
+     * Connect a {@link Channel} to the remote peer.
+     */
+    public ChannelFuture connect(SocketAddress remoteAddress, SocketAddress localAddress) {
+        if (remoteAddress == null) {
+            throw new NullPointerException("remoteAddress");
+        }
+        validate();
+        return doConnect(remoteAddress, localAddress);
+    }
+
+    /**
+     * @see {@link #connect()}
+     */
+    private ChannelFuture doConnect(final SocketAddress remoteAddress, final SocketAddress localAddress) {
+        final ChannelFuture regFuture = initAndRegister();
+        final Channel channel = regFuture.channel();
+        if (regFuture.cause() != null) {
+            return regFuture;
+        }
+
+        final ChannelPromise promise = channel.newPromise();
+        if (regFuture.isDone()) {
+            doConnect0(regFuture, channel, remoteAddress, localAddress, promise);
+        } else {
+            regFuture.addListener(new ChannelFutureListener() {
+                @Override
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    doConnect0(regFuture, channel, remoteAddress, localAddress, promise);
                 }
-            } catch (Throwable t) {
-                logger.warn("Failed to set a channel option: " + channel, t);
+            });
+        }
+
+        return promise;
+    }
+
+    private static void doConnect0(
+            final ChannelFuture regFuture, final Channel channel,
+            final SocketAddress remoteAddress, final SocketAddress localAddress, final ChannelPromise promise) {
+
+        // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
+        // the pipeline in its channelRegistered() implementation.
+        channel.eventLoop().execute(new Runnable() {
+            @Override
+            public void run() {
+                if (regFuture.isSuccess()) {
+                    if (localAddress == null) {
+                        channel.connect(remoteAddress, promise);
+                    } else {
+                        channel.connect(remoteAddress, localAddress, promise);
+                    }
+                    promise.addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
+                } else {
+                    promise.setFailure(regFuture.cause());
+                }
+            }
+        });
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    void init(Channel channel) throws Exception {
+        ChannelPipeline p = channel.pipeline();
+        p.addLast(handler());
+
+        final Map<ChannelOption<?>, Object> options = options();
+        synchronized (options) {
+            for (Entry<ChannelOption<?>, Object> e: options.entrySet()) {
+                try {
+                    if (!channel.config().setOption((ChannelOption<Object>) e.getKey(), e.getValue())) {
+                        logger.warn("Unknown channel option: " + e);
+                    }
+                } catch (Throwable t) {
+                    logger.warn("Failed to set a channel option: " + channel, t);
+                }
             }
         }
 
-        group.register(channel).syncUninterruptibly();
-    }
-
-    private static boolean ensureOpen(ChannelFuture future) {
-        if (!future.channel().isOpen()) {
-            // Registration was successful but the channel was closed due to some failure in
-            // handler.
-            future.setFailure(new ChannelException("initialization failure"));
-            return false;
-        }
-        return true;
-    }
-
-    public void shutdown() {
-        if (group != null) {
-            group.shutdown();
+        final Map<AttributeKey<?>, Object> attrs = attrs();
+        synchronized (attrs) {
+            for (Entry<AttributeKey<?>, Object> e: attrs.entrySet()) {
+                channel.attr((AttributeKey<Object>) e.getKey()).set(e.getValue());
+            }
         }
     }
 
-    private void validate() {
-        if (group == null) {
-            throw new IllegalStateException("group not set");
-        }
-        if (channel == null) {
-            throw new IllegalStateException("channel not set");
-        }
-        if (handler == null) {
+    @Override
+    public Bootstrap validate() {
+        super.validate();
+        if (handler() == null) {
             throw new IllegalStateException("handler not set");
         }
+        return this;
     }
 
-    private void validate(ChannelFuture future) {
-        if (future == null) {
-            throw new NullPointerException("future");
+    @Override
+    @SuppressWarnings("CloneDoesntCallSuperClone")
+    public Bootstrap clone() {
+        return new Bootstrap(this);
+    }
+
+    @Override
+    public String toString() {
+        if (remoteAddress == null) {
+            return super.toString();
         }
 
-        if (future.channel() != channel) {
-            throw new IllegalArgumentException("future.channel() must be the same channel.");
-        }
-        validate();
+        StringBuilder buf = new StringBuilder(super.toString());
+        buf.setLength(buf.length() - 1);
+        buf.append(", remoteAddress: ");
+        buf.append(remoteAddress);
+        buf.append(')');
+
+        return buf.toString();
     }
 }

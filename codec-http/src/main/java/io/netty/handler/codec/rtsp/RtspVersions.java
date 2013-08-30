@@ -19,7 +19,6 @@ import io.netty.handler.codec.http.HttpVersion;
 
 /**
  * The version of RTSP.
- * @apiviz.exclude
  */
 public final class RtspVersions {
 
@@ -40,7 +39,7 @@ public final class RtspVersions {
         }
 
         text = text.trim().toUpperCase();
-        if (text.equals("RTSP/1.0")) {
+        if ("RTSP/1.0".equals(text)) {
             return RTSP_1_0;
         }
 

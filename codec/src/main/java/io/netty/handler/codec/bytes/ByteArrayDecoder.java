@@ -22,6 +22,8 @@ import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.handler.codec.MessageToMessageDecoder;
 
+import java.util.List;
+
 /**
  * Decodes a received {@link ByteBuf} into an array of bytes.
  * A typical setup for TCP/IP would be:
@@ -41,38 +43,18 @@ import io.netty.handler.codec.MessageToMessageDecoder;
  * and then you can use an array of bytes instead of a {@link ByteBuf}
  * as a message:
  * <pre>
- * void messageReceived({@link ChannelHandlerContext} ctx, {@link MessageEvent} e) {
- *     byte[] bytes = (byte[]) e.getMessage();
+ * void channelRead({@link ChannelHandlerContext} ctx, byte[] bytes) {
  *     ...
  * }
  * </pre>
  */
-public class ByteArrayDecoder extends MessageToMessageDecoder<ByteBuf, byte[]> {
-
+public class ByteArrayDecoder extends MessageToMessageDecoder<ByteBuf> {
     @Override
-    public boolean isDecodable(Object msg) throws Exception {
-        return msg instanceof ByteBuf;
-    }
+    protected void decode(ChannelHandlerContext ctx, ByteBuf msg, List<Object> out) throws Exception {
+         // copy the ByteBuf content to a byte array
+        byte[] array = new byte[msg.readableBytes()];
+        msg.getBytes(0, array);
 
-    @Override
-    public byte[] decode(ChannelHandlerContext ctx, ByteBuf msg) throws Exception {
-        byte[] array;
-        if (msg.hasArray()) {
-            if (msg.arrayOffset() == 0 && msg.readableBytes() == msg.capacity()) {
-                // we have no offset and the length is the same as the capacity. Its safe to reuse
-                // the array without copy it first
-                array = msg.array();
-            } else {
-                // copy the ChannelBuffer to a byte array
-                array = new byte[msg.readableBytes()];
-                msg.getBytes(0, array);
-            }
-        } else {
-            // copy the ChannelBuffer to a byte array
-            array = new byte[msg.readableBytes()];
-            msg.getBytes(0, array);
-        }
-
-        return array;
+        out.add(array);
     }
 }

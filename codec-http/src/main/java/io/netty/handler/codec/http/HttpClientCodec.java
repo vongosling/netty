@@ -18,10 +18,11 @@ package io.netty.handler.codec.http;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.CombinedChannelHandler;
+import io.netty.channel.CombinedChannelDuplexHandler;
 import io.netty.handler.codec.PrematureChannelClosureException;
 
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -38,17 +39,15 @@ import java.util.concurrent.atomic.AtomicLong;
  * a {@link PrematureChannelClosureException} is thrown.
  *
  * @see HttpServerCodec
- *
- * @apiviz.has io.netty.handler.codec.http.HttpResponseDecoder
- * @apiviz.has io.netty.handler.codec.http.HttpRequestEncoder
  */
-public class HttpClientCodec extends CombinedChannelHandler {
+public final class HttpClientCodec
+        extends CombinedChannelDuplexHandler<HttpResponseDecoder, HttpRequestEncoder> {
 
     /** A queue that is used for correlating a request and a response. */
-    final Queue<HttpMethod> queue = new ArrayDeque<HttpMethod>();
+    private final Queue<HttpMethod> queue = new ArrayDeque<HttpMethod>();
 
     /** If true, decoding stops (i.e. pass-through) */
-    volatile boolean done;
+    private boolean done;
 
     private final AtomicLong requestResponseCounter = new AtomicLong();
     private final boolean failOnMissingResponse;
@@ -62,28 +61,32 @@ public class HttpClientCodec extends CombinedChannelHandler {
         this(4096, 8192, 8192, false);
     }
 
+    public void setSingleDecode(boolean singleDecode) {
+        inboundHandler().setSingleDecode(singleDecode);
+    }
+
+    public boolean isSingleDecode() {
+        return inboundHandler().isSingleDecode();
+    }
+
     /**
      * Creates a new instance with the specified decoder options.
      */
-    public HttpClientCodec(
-            int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
+    public HttpClientCodec(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
         this(maxInitialLineLength, maxHeaderSize, maxChunkSize, false);
     }
 
     public HttpClientCodec(
-            int maxInitialLineLength, int maxHeaderSize, int maxChunkSize,
-            boolean failOnMissingResponse) {
-
-        init(
-                new Decoder(maxInitialLineLength, maxHeaderSize, maxChunkSize),
-                new Encoder());
+            int maxInitialLineLength, int maxHeaderSize, int maxChunkSize, boolean failOnMissingResponse) {
+        init(new Decoder(maxInitialLineLength, maxHeaderSize, maxChunkSize), new Encoder());
         this.failOnMissingResponse = failOnMissingResponse;
     }
 
     private final class Encoder extends HttpRequestEncoder {
+
         @Override
-        public void encode(
-                ChannelHandlerContext ctx, Object msg, ByteBuf out) throws Exception {
+        protected void encode(
+                ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
             if (msg instanceof HttpRequest && !done) {
                 queue.offer(((HttpRequest) msg).getMethod());
             }
@@ -92,9 +95,7 @@ public class HttpClientCodec extends CombinedChannelHandler {
 
             if (failOnMissingResponse) {
                 // check if the request is chunked if so do not increment
-                if (msg instanceof HttpRequest && ((HttpMessage) msg).getTransferEncoding().isSingle()) {
-                    requestResponseCounter.incrementAndGet();
-                } else if (msg instanceof HttpChunk && ((HttpChunk) msg).isLast()) {
+                if (msg instanceof LastHttpContent) {
                     // increment as its the last chunk
                     requestResponseCounter.incrementAndGet();
                 }
@@ -103,22 +104,30 @@ public class HttpClientCodec extends CombinedChannelHandler {
     }
 
     private final class Decoder extends HttpResponseDecoder {
-
         Decoder(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
             super(maxInitialLineLength, maxHeaderSize, maxChunkSize);
         }
 
         @Override
-        public Object decode(
-                ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+        protected void decode(
+                ChannelHandlerContext ctx, ByteBuf buffer, List<Object> out) throws Exception {
             if (done) {
-                return buffer.readBytes(actualReadableBytes());
-            } else {
-                Object msg = super.decode(ctx, buffer);
-                if (failOnMissingResponse) {
-                    decrement(msg);
+                int readable = actualReadableBytes();
+                if (readable == 0) {
+                    // if non is readable just return null
+                    // https://github.com/netty/netty/issues/1159
+                    return;
                 }
-                return msg;
+                out.add(buffer.readBytes(readable));
+            } else {
+                int oldSize = out.size();
+                super.decode(ctx, buffer, out);
+                if (failOnMissingResponse) {
+                    int size = out.size();
+                    for (int i = oldSize; i < size; i++) {
+                        decrement(out.get(i));
+                    }
+                }
             }
         }
 
@@ -127,35 +136,29 @@ public class HttpClientCodec extends CombinedChannelHandler {
                 return;
             }
 
-            // check if it's an HttpMessage and its transfer encoding is SINGLE.
-            if (msg instanceof HttpMessage && ((HttpMessage) msg).getTransferEncoding().isSingle()) {
-                requestResponseCounter.decrementAndGet();
-            } else if (msg instanceof HttpChunk && ((HttpChunk) msg).isLast()) {
-                requestResponseCounter.decrementAndGet();
-            } else if (msg instanceof Object[]) {
-                // we just decrement it here as we only use this if the end of the chunk is reached
-                // It would be more safe to check all the objects in the array but would also be slower
+            // check if it's an Header and its transfer encoding is not chunked.
+            if (msg instanceof LastHttpContent) {
                 requestResponseCounter.decrementAndGet();
             }
         }
 
         @Override
         protected boolean isContentAlwaysEmpty(HttpMessage msg) {
-            final int statusCode = ((HttpResponse) msg).getStatus().getCode();
+            final int statusCode = ((HttpResponse) msg).getStatus().code();
             if (statusCode == 100) {
                 // 100-continue response should be excluded from paired comparison.
                 return true;
             }
 
-            // Get the method of the HTTP request that corresponds to the
+            // Get the getMethod of the HTTP request that corresponds to the
             // current response.
             HttpMethod method = queue.poll();
 
-            char firstChar = method.getName().charAt(0);
+            char firstChar = method.name().charAt(0);
             switch (firstChar) {
             case 'H':
                 // According to 4.3, RFC2616:
-                // All responses to the HEAD request method MUST NOT include a
+                // All responses to the HEAD request getMethod MUST NOT include a
                 // message-body, even though the presence of entity-header fields
                 // might lead one to believe they do.
                 if (HttpMethod.HEAD.equals(method)) {

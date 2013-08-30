@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -15,17 +15,12 @@
  */
 package io.netty.handler.codec.spdy;
 
-import io.netty.channel.CombinedChannelHandler;
-
+import io.netty.channel.CombinedChannelDuplexHandler;
 
 /**
  * A combination of {@link SpdyFrameDecoder} and {@link SpdyFrameEncoder}.
- *
- * @apiviz.has io.netty.handler.codec.spdy.SpdyFrameDecoder
- * @apiviz.has io.netty.handler.codec.spdy.SpdyFrameEncoder
  */
-public class SpdyFrameCodec extends CombinedChannelHandler {
-
+public final class SpdyFrameCodec extends CombinedChannelDuplexHandler<SpdyFrameDecoder, SpdyFrameEncoder> {
     /**
      * Creates a new instance with the specified {@code version} and
      * the default decoder and encoder options

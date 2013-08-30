@@ -15,12 +15,13 @@
  */
 package io.netty.channel.socket.nio;
 
-import io.netty.buffer.ChannelBufType;
-import io.netty.buffer.MessageBuf;
 import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelMetadata;
+import io.netty.channel.nio.AbstractNioMessageChannel;
 import io.netty.channel.socket.DefaultServerSocketChannelConfig;
 import io.netty.channel.socket.ServerSocketChannelConfig;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -28,11 +29,18 @@ import java.net.SocketAddress;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.util.List;
 
+/**
+ * A {@link io.netty.channel.socket.ServerSocketChannel} implementation which uses
+ * NIO selector based implementation to accept new connections.
+ */
 public class NioServerSocketChannel extends AbstractNioMessageChannel
                              implements io.netty.channel.socket.ServerSocketChannel {
 
-    private static final ChannelMetadata METADATA = new ChannelMetadata(ChannelBufType.MESSAGE, false);
+    private static final ChannelMetadata METADATA = new ChannelMetadata(false);
+
+    private static final InternalLogger logger = InternalLoggerFactory.getInstance(NioServerSocketChannel.class);
 
     private static ServerSocketChannel newSocket() {
         try {
@@ -45,9 +53,17 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     private final ServerSocketChannelConfig config;
 
+    /**
+     * Create a new instance
+     */
     public NioServerSocketChannel() {
-        super(null, null, newSocket(), SelectionKey.OP_ACCEPT);
-        config = new DefaultServerSocketChannelConfig(javaChannel().socket());
+        super(null, newSocket(), SelectionKey.OP_ACCEPT);
+        config = new DefaultServerSocketChannelConfig(this, javaChannel().socket());
+    }
+
+    @Override
+    public InetSocketAddress localAddress() {
+        return (InetSocketAddress) super.localAddress();
     }
 
     @Override
@@ -83,8 +99,6 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     @Override
     protected void doBind(SocketAddress localAddress) throws Exception {
         javaChannel().socket().bind(localAddress, config.getBacklog());
-        SelectionKey selectionKey = selectionKey();
-        selectionKey.interestOps(selectionKey.interestOps() | SelectionKey.OP_ACCEPT);
     }
 
     @Override
@@ -93,13 +107,25 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     }
 
     @Override
-    protected int doReadMessages(MessageBuf<Object> buf) throws Exception {
+    protected int doReadMessages(List<Object> buf) throws Exception {
         SocketChannel ch = javaChannel().accept();
-        if (ch == null) {
-            return 0;
+
+        try {
+            if (ch != null) {
+                buf.add(new NioSocketChannel(this, ch));
+                return 1;
+            }
+        } catch (Throwable t) {
+            logger.warn("Failed to create a new channel from an accepted socket.", t);
+
+            try {
+                ch.close();
+            } catch (Throwable t2) {
+                logger.warn("Failed to close a socket.", t2);
+            }
         }
-        buf.add(new NioSocketChannel(this, null, ch));
-        return 1;
+
+        return 0;
     }
 
     // Unnecessary stuff
@@ -125,7 +151,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     }
 
     @Override
-    protected int doWriteMessages(MessageBuf<Object> buf, boolean lastSpin) throws Exception {
+    protected boolean doWriteMessage(Object msg) throws Exception {
         throw new UnsupportedOperationException();
     }
 }

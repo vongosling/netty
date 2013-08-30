@@ -15,25 +15,25 @@
  */
 package io.netty.testsuite.transport.socket;
 
-import static org.junit.Assert.*;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundMessageHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.Delimiters;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 import io.netty.util.CharsetUtil;
+import org.junit.Test;
 
 import java.io.IOException;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.junit.Test;
+import static org.junit.Assert.*;
 
 public class SocketStringEchoTest extends AbstractSocketTest {
 
@@ -85,7 +85,7 @@ public class SocketStringEchoTest extends AbstractSocketTest {
         Channel cc = cb.connect().sync().channel();
         for (String element : data) {
             String delimiter = random.nextBoolean() ? "\r\n" : "\n";
-            cc.write(element + delimiter);
+            cc.writeAndFlush(element + delimiter);
         }
 
         while (ch.counter < data.length) {
@@ -97,7 +97,7 @@ public class SocketStringEchoTest extends AbstractSocketTest {
             }
 
             try {
-                Thread.sleep(1);
+                Thread.sleep(50);
             } catch (InterruptedException e) {
                 // Ignore.
             }
@@ -112,7 +112,7 @@ public class SocketStringEchoTest extends AbstractSocketTest {
             }
 
             try {
-                Thread.sleep(1);
+                Thread.sleep(50);
             } catch (InterruptedException e) {
                 // Ignore.
             }
@@ -135,20 +135,18 @@ public class SocketStringEchoTest extends AbstractSocketTest {
         }
     }
 
-    static class StringEchoHandler extends ChannelInboundMessageHandlerAdapter<String> {
+    static class StringEchoHandler extends SimpleChannelInboundHandler<String> {
         volatile Channel channel;
         final AtomicReference<Throwable> exception = new AtomicReference<Throwable>();
         volatile int counter;
 
         @Override
-        public void channelActive(ChannelHandlerContext ctx)
-                throws Exception {
+        public void channelActive(ChannelHandlerContext ctx) throws Exception {
             channel = ctx.channel();
         }
 
         @Override
-        public void messageReceived(ChannelHandlerContext ctx,
-                String msg) throws Exception {
+        public void channelRead0(ChannelHandlerContext ctx, String msg) throws Exception {
             assertEquals(data[counter], msg);
 
             if (channel.parent() != null) {
@@ -160,8 +158,12 @@ public class SocketStringEchoTest extends AbstractSocketTest {
         }
 
         @Override
-        public void exceptionCaught(ChannelHandlerContext ctx,
-                Throwable cause) throws Exception {
+        public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+            ctx.flush();
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
             if (exception.compareAndSet(null, cause)) {
                 ctx.close();
             }

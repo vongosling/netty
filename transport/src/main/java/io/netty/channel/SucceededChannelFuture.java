@@ -15,25 +15,22 @@
  */
 package io.netty.channel;
 
-import java.nio.channels.Channels;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import io.netty.util.concurrent.EventExecutor;
 
 /**
  * The {@link CompleteChannelFuture} which is succeeded already.  It is
- * recommended to use {@link Channels#succeededFuture(Channel)} instead of
+ * recommended to use {@link Channel#newSucceededFuture()} instead of
  * calling the constructor of this future.
  */
-public class SucceededChannelFuture extends CompleteChannelFuture {
+final class SucceededChannelFuture extends CompleteChannelFuture {
 
     /**
      * Creates a new instance.
      *
      * @param channel the {@link Channel} associated with this future
      */
-    public SucceededChannelFuture(Channel channel) {
-        super(channel);
+    public SucceededChannelFuture(Channel channel, EventExecutor executor) {
+        super(channel, executor);
     }
 
     @Override
@@ -45,26 +42,4 @@ public class SucceededChannelFuture extends CompleteChannelFuture {
     public boolean isSuccess() {
         return true;
     }
-
-    @Override
-    public ChannelFuture sync() throws InterruptedException {
-        return this;
-    }
-
-    @Override
-    public ChannelFuture syncUninterruptibly() {
-        return this;
-    }
-
-    @Override
-    public Void get() throws InterruptedException, ExecutionException {
-        return null;
-    }
-
-    @Override
-    public Void get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException,
-            TimeoutException {
-        return null;
-    }
-
 }

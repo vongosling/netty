@@ -15,12 +15,13 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.channel.embedded.EmbeddedByteChannel;
+import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.compression.ZlibCodecFactory;
 import io.netty.handler.codec.compression.ZlibWrapper;
+import io.netty.util.internal.StringUtil;
 
 /**
- * Compresses an {@link HttpMessage} and an {@link HttpChunk} in {@code gzip} or
+ * Compresses an {@link HttpMessage} and an {@link HttpContent} in {@code gzip} or
  * {@code deflate} encoding while respecting the {@code "Accept-Encoding"} header.
  * If there is no matching encoding, no compression is done.  For more
  * information on how this handler modifies the message, please refer to
@@ -92,8 +93,8 @@ public class HttpContentCompressor extends HttpContentEncoder {
     }
 
     @Override
-    protected Result beginEncode(HttpMessage msg, String acceptEncoding) throws Exception {
-        String contentEncoding = msg.getHeader(HttpHeaders.Names.CONTENT_ENCODING);
+    protected Result beginEncode(HttpResponse headers, String acceptEncoding) throws Exception {
+        String contentEncoding = headers.headers().get(HttpHeaders.Names.CONTENT_ENCODING);
         if (contentEncoding != null &&
             !HttpHeaders.Values.IDENTITY.equalsIgnoreCase(contentEncoding)) {
             return null;
@@ -118,7 +119,7 @@ public class HttpContentCompressor extends HttpContentEncoder {
 
         return new Result(
                 targetContentEncoding,
-                new EmbeddedByteChannel(ZlibCodecFactory.newZlibEncoder(
+                new EmbeddedChannel(ZlibCodecFactory.newZlibEncoder(
                         wrapper, compressionLevel, windowBits, memLevel)));
     }
 
@@ -126,7 +127,7 @@ public class HttpContentCompressor extends HttpContentEncoder {
         float starQ = -1.0f;
         float gzipQ = -1.0f;
         float deflateQ = -1.0f;
-        for (String encoding : acceptEncoding.split(",")) {
+        for (String encoding: StringUtil.split(acceptEncoding, ',')) {
             float q = 1.0f;
             int equalsPos = encoding.indexOf('=');
             if (equalsPos != -1) {

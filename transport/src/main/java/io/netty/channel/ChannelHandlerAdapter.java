@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 The Netty Project
+ * Copyright 2013 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -13,46 +13,50 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
+
 package io.netty.channel;
 
-import java.net.SocketAddress;
+/**
+ * Skelton implementation of a {@link ChannelHandler}.
+ */
+public abstract class ChannelHandlerAdapter implements ChannelHandler {
 
-public class ChannelHandlerAdapter extends ChannelStateHandlerAdapter implements ChannelOperationHandler {
+    // Not using volatile because it's used only for a sanity check.
+    boolean added;
 
-    @Override
-    public void bind(ChannelHandlerContext ctx, SocketAddress localAddress, ChannelFuture future) throws Exception {
-        ctx.bind(localAddress, future);
+    /**
+     * Return {@code true} if the implementation is {@link Sharable} and so can be added
+     * to different {@link ChannelPipeline}s.
+     */
+    public boolean isSharable() {
+        return getClass().isAnnotationPresent(Sharable.class);
     }
 
+    /**
+     * Do nothing by default, sub-classes may override this method.
+     */
     @Override
-    public void connect(
-            ChannelHandlerContext ctx, SocketAddress remoteAddress, SocketAddress localAddress,
-            ChannelFuture future) throws Exception {
-        ctx.connect(remoteAddress, localAddress, future);
+    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+        // NOOP
     }
 
+    /**
+     * Do nothing by default, sub-classes may override this method.
+     */
     @Override
-    public void disconnect(ChannelHandlerContext ctx, ChannelFuture future) throws Exception {
-        ctx.disconnect(future);
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+        // NOOP
     }
 
+    /**
+     * Calls {@link ChannelHandlerContext#fireExceptionCaught(Throwable)} to forward
+     * to the next {@link ChannelHandler} in the {@link ChannelPipeline}.
+     *
+     * Sub-classes may override this method to change behavior.
+     */
     @Override
-    public void close(ChannelHandlerContext ctx, ChannelFuture future) throws Exception {
-        ctx.close(future);
-    }
-
-    @Override
-    public void deregister(ChannelHandlerContext ctx, ChannelFuture future) throws Exception {
-        ctx.deregister(future);
-    }
-
-    @Override
-    public void flush(ChannelHandlerContext ctx, ChannelFuture future) throws Exception {
-        if (this instanceof ChannelOutboundHandler) {
-            throw new IllegalStateException(
-                    "flush(...) must be overridden by " + getClass().getName() +
-                    ", which implements " + ChannelOutboundHandler.class.getSimpleName());
-        }
-        ctx.flush(future);
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
+            throws Exception {
+        ctx.fireExceptionCaught(cause);
     }
 }

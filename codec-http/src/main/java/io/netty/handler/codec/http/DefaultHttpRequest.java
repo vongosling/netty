@@ -29,13 +29,19 @@ public class DefaultHttpRequest extends DefaultHttpMessage implements HttpReques
      * Creates a new instance.
      *
      * @param httpVersion the HTTP version of the request
-     * @param method      the HTTP method of the request
+     * @param method      the HTTP getMethod of the request
      * @param uri         the URI or path of the request
      */
     public DefaultHttpRequest(HttpVersion httpVersion, HttpMethod method, String uri) {
         super(httpVersion);
-        setMethod(method);
-        setUri(uri);
+        if (method == null) {
+            throw new NullPointerException("getMethod");
+        }
+        if (uri == null) {
+            throw new NullPointerException("getUri");
+        }
+        this.method = method;
+        this.uri = uri;
     }
 
     @Override
@@ -44,39 +50,47 @@ public class DefaultHttpRequest extends DefaultHttpMessage implements HttpReques
     }
 
     @Override
-    public void setMethod(HttpMethod method) {
-        if (method == null) {
-            throw new NullPointerException("method");
-        }
-        this.method = method;
-    }
-
-    @Override
     public String getUri() {
         return uri;
     }
 
     @Override
-    public void setUri(String uri) {
+    public HttpRequest setMethod(HttpMethod method) {
+        if (method == null) {
+            throw new NullPointerException("method");
+        }
+        this.method = method;
+        return this;
+    }
+
+    @Override
+    public HttpRequest setUri(String uri) {
         if (uri == null) {
-            throw new NullPointerException("uri");
+            throw new NullPointerException("method");
         }
         this.uri = uri;
+        return this;
+    }
+
+    @Override
+    public HttpRequest setProtocolVersion(HttpVersion version) {
+        super.setProtocolVersion(version);
+        return this;
     }
 
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
         buf.append(getClass().getSimpleName());
-        buf.append("(transferEncoding: ");
-        buf.append(getTransferEncoding());
+        buf.append(", decodeResult: ");
+        buf.append(getDecoderResult());
         buf.append(')');
         buf.append(StringUtil.NEWLINE);
         buf.append(getMethod().toString());
         buf.append(' ');
         buf.append(getUri());
         buf.append(' ');
-        buf.append(getProtocolVersion().getText());
+        buf.append(getProtocolVersion().text());
         buf.append(StringUtil.NEWLINE);
         appendHeaders(buf);
 
