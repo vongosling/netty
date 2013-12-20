@@ -76,6 +76,38 @@ public final class ByteBufUtil {
     }
 
     /**
+     * Returns a <a href="http://en.wikipedia.org/wiki/Hex_dump">hex dump</a>
+     * of the specified byte array.
+     */
+    public static String hexDump(byte[] array) {
+        return hexDump(array, 0, array.length);
+    }
+
+    /**
+     * Returns a <a href="http://en.wikipedia.org/wiki/Hex_dump">hex dump</a>
+     * of the specified byte array's sub-region.
+     */
+    public static String hexDump(byte[] array, int fromIndex, int length) {
+        if (length < 0) {
+            throw new IllegalArgumentException("length: " + length);
+        }
+        if (length == 0) {
+            return "";
+        }
+
+        int endIndex = fromIndex + length;
+        char[] buf = new char[length << 1];
+
+        int srcIdx = fromIndex;
+        int dstIdx = 0;
+        for (; srcIdx < endIndex; srcIdx ++, dstIdx += 2) {
+            System.arraycopy(HEXDUMP_TABLE, (array[srcIdx] & 0xFF) << 1, buf, dstIdx, 2);
+        }
+
+        return new String(buf);
+    }
+
+    /**
      * Calculates the hash code of the specified buffer.  This method is
      * useful when implementing a new buffer type.
      */
@@ -257,6 +289,23 @@ public final class ByteBufUtil {
         return Long.reverseBytes(value);
     }
 
+    /**
+     * Read the given amount of bytes into a new {@link ByteBuf} that is allocated from the {@link ByteBufAllocator}.
+     */
+    public static ByteBuf readBytes(ByteBufAllocator alloc, ByteBuf buffer, int length) {
+        boolean release = true;
+        ByteBuf dst = alloc.buffer(length);
+        try {
+            buffer.readBytes(dst);
+            release = false;
+            return dst;
+        } finally {
+            if (release) {
+                dst.release();
+            }
+        }
+    }
+
     private static int firstIndexOf(ByteBuf buffer, int fromIndex, int toIndex, byte value) {
         fromIndex = Math.max(fromIndex, 0);
         if (fromIndex >= toIndex || buffer.capacity() == 0) {
@@ -287,24 +336,36 @@ public final class ByteBufUtil {
         return -1;
     }
 
-    static ByteBuffer encodeString(CharBuffer src, Charset charset) {
+    /**
+     * Encode the given {@link CharBuffer} using the given {@link Charset} into a new {@link ByteBuf} which
+     * is allocated via the {@link ByteBufAllocator}.
+     */
+    public static ByteBuf encodeString(ByteBufAllocator alloc, CharBuffer src, Charset charset) {
         final CharsetEncoder encoder = CharsetUtil.getEncoder(charset);
-        final ByteBuffer dst = ByteBuffer.allocate(
-                (int) ((double) src.remaining() * encoder.maxBytesPerChar()));
+        int length = (int) ((double) src.remaining() * encoder.maxBytesPerChar());
+        boolean release = true;
+        final ByteBuf dst = alloc.buffer(length);
         try {
-            CoderResult cr = encoder.encode(src, dst, true);
+            final ByteBuffer dstBuf = dst.internalNioBuffer(0, length);
+            final int pos = dstBuf.position();
+            CoderResult cr = encoder.encode(src, dstBuf, true);
             if (!cr.isUnderflow()) {
                 cr.throwException();
             }
-            cr = encoder.flush(dst);
+            cr = encoder.flush(dstBuf);
             if (!cr.isUnderflow()) {
                 cr.throwException();
             }
+            dst.writerIndex(dst.writerIndex() + dstBuf.position() - pos);
+            release = false;
+            return dst;
         } catch (CharacterCodingException x) {
             throw new IllegalStateException(x);
+        } finally {
+            if (release) {
+                dst.release();
+            }
         }
-        dst.flip();
-        return dst;
     }
 
     static String decodeString(ByteBuffer src, Charset charset) {

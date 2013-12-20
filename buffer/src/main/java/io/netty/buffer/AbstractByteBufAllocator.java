@@ -16,7 +16,10 @@
 
 package io.netty.buffer;
 
+import io.netty.util.ResourceLeak;
+import io.netty.util.ResourceLeakDetector;
 import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.StringUtil;
 
 /**
  * Skeletal {@link ByteBufAllocator} implementation to extend.
@@ -24,6 +27,26 @@ import io.netty.util.internal.PlatformDependent;
 public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
     private static final int DEFAULT_INITIAL_CAPACITY = 256;
     private static final int DEFAULT_MAX_COMPONENTS = 16;
+
+    protected static ByteBuf toLeakAwareBuffer(ByteBuf buf) {
+        ResourceLeak leak;
+        switch (ResourceLeakDetector.getLevel()) {
+            case SIMPLE:
+                leak = AbstractByteBuf.leakDetector.open(buf);
+                if (leak != null) {
+                    buf = new SimpleLeakAwareByteBuf(buf, leak);
+                }
+                break;
+            case ADVANCED:
+            case PARANOID:
+                leak = AbstractByteBuf.leakDetector.open(buf);
+                if (leak != null) {
+                    buf = new AdvancedLeakAwareByteBuf(buf, leak);
+                }
+                break;
+        }
+        return buf;
+    }
 
     private final boolean directByDefault;
     private final ByteBuf emptyBuf;
@@ -188,4 +211,9 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
      * Create a direct {@link ByteBuf} with the given initialCapacity and maxCapacity.
      */
     protected abstract ByteBuf newDirectBuffer(int initialCapacity, int maxCapacity);
+
+    @Override
+    public String toString() {
+        return StringUtil.simpleClassName(this) + "(directByDefault: " + directByDefault + ')';
+    }
 }

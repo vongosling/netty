@@ -17,9 +17,12 @@ package io.netty.testsuite.transport.sctp;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.ChannelOption;
 import io.netty.testsuite.transport.sctp.SctpTestPermutation.Factory;
 import io.netty.testsuite.util.TestUtils;
 import io.netty.util.NetUtil;
+import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import org.junit.Rule;
@@ -35,6 +38,7 @@ public abstract class AbstractSctpTest {
 
     private static final List<Entry<Factory<ServerBootstrap>, Factory<Bootstrap>>> COMBO =
             SctpTestPermutation.sctpChannel();
+    private static final List<ByteBufAllocator> ALLOCATORS = SctpTestPermutation.allocator();
 
     @Rule
     public final TestName testName = new TestName();
@@ -47,24 +51,29 @@ public abstract class AbstractSctpTest {
     protected volatile Factory<Bootstrap> currentBootstrap;
 
     protected void run() throws Throwable {
-        int i = 0;
-        for (Entry<Factory<ServerBootstrap>, Factory<Bootstrap>> e: COMBO) {
-            currentBootstrap = e.getValue();
-            sb = e.getKey().newInstance();
-            cb = e.getValue().newInstance();
-            addr = new InetSocketAddress(
-                    NetUtil.LOCALHOST, TestUtils.getFreePort());
-            sb.localAddress(addr);
-            cb.remoteAddress(addr);
-
-            logger.info(String.format(
-                    "Running: %s %d of %d (%s + %s)", testName.getMethodName(), ++ i, COMBO.size(), sb, cb));
-            try {
-                Method m = getClass().getDeclaredMethod(
-                        testName.getMethodName(), ServerBootstrap.class, Bootstrap.class);
-                m.invoke(this, sb, cb);
-            } catch (InvocationTargetException ex) {
-                throw ex.getCause();
+        for (ByteBufAllocator allocator: ALLOCATORS) {
+            int i = 0;
+            for (Entry<Factory<ServerBootstrap>, Factory<Bootstrap>> e: COMBO) {
+                currentBootstrap = e.getValue();
+                sb = e.getKey().newInstance();
+                cb = e.getValue().newInstance();
+                addr = new InetSocketAddress(
+                        NetUtil.LOCALHOST, TestUtils.getFreePort());
+                sb.localAddress(addr);
+                sb.option(ChannelOption.ALLOCATOR, allocator);
+                sb.childOption(ChannelOption.ALLOCATOR, allocator);
+                cb.remoteAddress(addr);
+                cb.option(ChannelOption.ALLOCATOR, allocator);
+                logger.info(String.format(
+                        "Running: %s %d of %d (%s + %s) with %s",
+                        testName.getMethodName(), ++ i, COMBO.size(), sb, cb, StringUtil.simpleClassName(allocator)));
+                try {
+                    Method m = getClass().getDeclaredMethod(
+                            testName.getMethodName(), ServerBootstrap.class, Bootstrap.class);
+                    m.invoke(this, sb, cb);
+                } catch (InvocationTargetException ex) {
+                    throw ex.getCause();
+                }
             }
         }
     }

@@ -18,7 +18,6 @@ package io.netty.handler.codec.spdy;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandler;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http.HttpObjectAggregator;
@@ -30,7 +29,7 @@ import javax.net.ssl.SSLEngine;
 import java.util.List;
 
 /**
- * {@link ChannelInboundHandler} which is responsible to setup the {@link ChannelPipeline} either for
+ * {@link ChannelHandler} which is responsible to setup the {@link ChannelPipeline} either for
  * HTTP or SPDY. This offers an easy way for users to support both at the same time while not care to
  * much about the low-level details.
  */
@@ -39,8 +38,8 @@ public abstract class SpdyOrHttpChooser extends ByteToMessageDecoder {
     // TODO: Replace with generic NPN handler
 
     public enum SelectedProtocol {
-        SPDY_2,
         SPDY_3,
+        SPDY_3_1,
         HTTP_1_1,
         HTTP_1_0,
         UNKNOWN
@@ -83,11 +82,11 @@ public abstract class SpdyOrHttpChooser extends ByteToMessageDecoder {
         case UNKNOWN:
             // Not done with choosing the protocol, so just return here for now,
             return false;
-        case SPDY_2:
-            addSpdyHandlers(ctx, 2);
-            break;
         case SPDY_3:
-            addSpdyHandlers(ctx, 3);
+            addSpdyHandlers(ctx, SpdyVersion.SPDY_3);
+            break;
+        case SPDY_3_1:
+            addSpdyHandlers(ctx, SpdyVersion.SPDY_3_1);
             break;
         case HTTP_1_0:
         case HTTP_1_1:
@@ -102,7 +101,7 @@ public abstract class SpdyOrHttpChooser extends ByteToMessageDecoder {
     /**
      * Add all {@link ChannelHandler}'s that are needed for SPDY with the given version.
      */
-    protected void addSpdyHandlers(ChannelHandlerContext ctx, int version) {
+    protected void addSpdyHandlers(ChannelHandlerContext ctx, SpdyVersion version) {
         ChannelPipeline pipeline = ctx.pipeline();
         pipeline.addLast("spdyDecoder", new SpdyFrameDecoder(version));
         pipeline.addLast("spdyEncoder", new SpdyFrameEncoder(version));
@@ -125,21 +124,21 @@ public abstract class SpdyOrHttpChooser extends ByteToMessageDecoder {
     }
 
     /**
-     * Create the {@link ChannelInboundHandler} that is responsible for handling the http requests
+     * Create the {@link ChannelHandler} that is responsible for handling the http requests
      * when the {@link SelectedProtocol} was {@link SelectedProtocol#HTTP_1_0} or
      * {@link SelectedProtocol#HTTP_1_1}
      */
-    protected abstract ChannelInboundHandler createHttpRequestHandlerForHttp();
+    protected abstract ChannelHandler createHttpRequestHandlerForHttp();
 
     /**
-     * Create the {@link ChannelInboundHandler} that is responsible for handling the http responses
-     * when the {@link SelectedProtocol} was {@link SelectedProtocol#SPDY_2} or
-     * {@link SelectedProtocol#SPDY_3}.
+     * Create the {@link ChannelHandler} that is responsible for handling the http responses
+     * when the {@link SelectedProtocol} was {@link SelectedProtocol#SPDY_3} or
+     * {@link SelectedProtocol#SPDY_3_1}.
      *
      * By default this getMethod will just delecate to {@link #createHttpRequestHandlerForHttp()}, but
      * sub-classes may override this to change the behaviour.
      */
-    protected ChannelInboundHandler createHttpRequestHandlerForSpdy() {
+    protected ChannelHandler createHttpRequestHandlerForSpdy() {
         return createHttpRequestHandlerForHttp();
     }
 }

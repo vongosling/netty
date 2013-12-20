@@ -15,7 +15,7 @@
  */
 package io.netty.buffer;
 
-import io.netty.util.ResourceLeak;
+import io.netty.util.internal.StringUtil;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,7 +31,6 @@ import java.nio.channels.ScatteringByteChannel;
  * Read-only ByteBuf which wraps a read-only ByteBuffer.
  */
 class ReadOnlyByteBufferBuf extends AbstractReferenceCountedByteBuf {
-    private final ResourceLeak leak;
 
     protected final ByteBuffer buffer;
     private final ByteBufAllocator allocator;
@@ -40,21 +39,16 @@ class ReadOnlyByteBufferBuf extends AbstractReferenceCountedByteBuf {
     public ReadOnlyByteBufferBuf(ByteBufAllocator allocator, ByteBuffer buffer) {
         super(buffer.remaining());
         if (!buffer.isReadOnly()) {
-            throw new IllegalArgumentException("must be a readonly buffer: " + buffer.getClass().getSimpleName());
+            throw new IllegalArgumentException("must be a readonly buffer: " + StringUtil.simpleClassName(buffer));
         }
 
         this.allocator = allocator;
         this.buffer = buffer.slice().order(ByteOrder.BIG_ENDIAN);
         writerIndex(this.buffer.limit());
-        leak = leakDetector.open(this);
     }
 
     @Override
-    protected void deallocate() {
-        if (leak != null) {
-            leak.close();
-        }
-    }
+    protected void deallocate() { }
 
     @Override
     public byte getByte(int index) {
@@ -301,6 +295,11 @@ class ReadOnlyByteBufferBuf extends AbstractReferenceCountedByteBuf {
     @Override
     public ByteBuffer[] nioBuffers(int index, int length) {
         return new ByteBuffer[] { nioBuffer(index, length) };
+    }
+
+    @Override
+    public ByteBuffer nioBuffer(int index, int length) {
+        return (ByteBuffer) buffer.duplicate().position(index).limit(length);
     }
 
     @Override

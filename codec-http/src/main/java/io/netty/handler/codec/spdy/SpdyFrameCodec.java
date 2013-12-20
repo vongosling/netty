@@ -15,12 +15,12 @@
  */
 package io.netty.handler.codec.spdy;
 
-import io.netty.channel.CombinedChannelDuplexHandler;
+import io.netty.channel.ChannelHandlerAppender;
 
 /**
  * A combination of {@link SpdyFrameDecoder} and {@link SpdyFrameEncoder}.
  */
-public final class SpdyFrameCodec extends CombinedChannelDuplexHandler<SpdyFrameDecoder, SpdyFrameEncoder> {
+public final class SpdyFrameCodec extends ChannelHandlerAppender {
     /**
      * Creates a new instance with the specified {@code version} and
      * the default decoder and encoder options
@@ -28,7 +28,7 @@ public final class SpdyFrameCodec extends CombinedChannelDuplexHandler<SpdyFrame
      * {@code compressionLevel (6)}, {@code windowBits (15)},
      * and {@code memLevel (8)}).
      */
-    public SpdyFrameCodec(int version) {
+    public SpdyFrameCodec(SpdyVersion version) {
         this(version, 8192, 16384, 6, 15, 8);
     }
 
@@ -36,7 +36,7 @@ public final class SpdyFrameCodec extends CombinedChannelDuplexHandler<SpdyFrame
      * Creates a new instance with the specified decoder and encoder options.
      */
     public SpdyFrameCodec(
-            int version, int maxChunkSize, int maxHeaderSize,
+            SpdyVersion version, int maxChunkSize, int maxHeaderSize,
             int compressionLevel, int windowBits, int memLevel) {
         super(
                 new SpdyFrameDecoder(version, maxChunkSize, maxHeaderSize),

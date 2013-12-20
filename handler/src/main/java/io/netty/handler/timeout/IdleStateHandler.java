@@ -17,9 +17,9 @@ package io.netty.handler.timeout;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerAdapter;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
@@ -71,14 +71,14 @@ import java.util.concurrent.TimeUnit;
  * }
  *
  * // Handler should handle the {@link IdleStateEvent} triggered by {@link IdleStateHandler}.
- * public class MyHandler extends {@link ChannelDuplexHandler} {
+ * public class MyHandler extends {@link ChannelHandlerAdapter} {
  *     {@code @Override}
  *     public void userEventTriggered({@link ChannelHandlerContext} ctx, {@link Object} evt) throws {@link Exception} {
- *         if (evt instanceof {@link IdleState}} {
- *             {@link IdleState} e = ({@link IdleState}) evt;
- *             if (e.getState() == {@link IdleState}.READER_IDLE) {
+ *         if (evt instanceof {@link IdleStateEvent}} {
+ *             {@link IdleStateEvent} e = ({@link IdleStateEvent}) evt;
+ *             if (e.state() == {@link IdleState}.READER_IDLE) {
  *                 ctx.close();
- *             } else if (e.getState() == {@link IdleState}.WRITER_IDLE) {
+ *             } else if (e.state() == {@link IdleState}.WRITER_IDLE) {
  *                 ctx.writeAndFlush(new PingMessage());
  *             }
  *         }
@@ -94,7 +94,7 @@ import java.util.concurrent.TimeUnit;
  * @see ReadTimeoutHandler
  * @see WriteTimeoutHandler
  */
-public class IdleStateHandler extends ChannelDuplexHandler {
+public class IdleStateHandler extends ChannelHandlerAdapter {
 
     private final long readerIdleTimeMillis;
     private final long writerIdleTimeMillis;
@@ -207,7 +207,7 @@ public class IdleStateHandler extends ChannelDuplexHandler {
 
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-        if (ctx.channel().isActive() & ctx.channel().isRegistered()) {
+        if (ctx.channel().isActive() && ctx.channel().isRegistered()) {
             // channelActvie() event has been fired already, which means this.channelActive() will
             // not be invoked. We have to initialize here instead.
             initialize(ctx);

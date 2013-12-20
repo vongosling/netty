@@ -17,7 +17,6 @@
 package io.netty.buffer;
 
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.SystemPropertyUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -218,42 +217,57 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator {
     protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
         PoolThreadCache cache = threadCache.get();
         PoolArena<byte[]> heapArena = cache.heapArena;
+
+        ByteBuf buf;
         if (heapArena != null) {
-            return heapArena.allocate(cache, initialCapacity, maxCapacity);
+            buf = heapArena.allocate(cache, initialCapacity, maxCapacity);
         } else {
-            return new UnpooledHeapByteBuf(this, initialCapacity, maxCapacity);
+            buf = new UnpooledHeapByteBuf(this, initialCapacity, maxCapacity);
         }
+
+        return toLeakAwareBuffer(buf);
     }
 
     @Override
     protected ByteBuf newDirectBuffer(int initialCapacity, int maxCapacity) {
         PoolThreadCache cache = threadCache.get();
         PoolArena<ByteBuffer> directArena = cache.directArena;
+
+        ByteBuf buf;
         if (directArena != null) {
-            return directArena.allocate(cache, initialCapacity, maxCapacity);
+            buf = directArena.allocate(cache, initialCapacity, maxCapacity);
         } else {
             if (PlatformDependent.hasUnsafe()) {
-                return new UnpooledUnsafeDirectByteBuf(this, initialCapacity, maxCapacity);
+                buf = new UnpooledUnsafeDirectByteBuf(this, initialCapacity, maxCapacity);
             } else {
-                return new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
+                buf = new UnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
             }
         }
+
+        return toLeakAwareBuffer(buf);
     }
 
-    public String toString() {
-        StringBuilder buf = new StringBuilder();
-        buf.append(heapArenas.length);
-        buf.append(" heap arena(s):");
-        buf.append(StringUtil.NEWLINE);
-        for (PoolArena<byte[]> a: heapArenas) {
-            buf.append(a);
-        }
-        buf.append(directArenas.length);
-        buf.append(" direct arena(s):");
-        buf.append(StringUtil.NEWLINE);
-        for (PoolArena<ByteBuffer> a: directArenas) {
-            buf.append(a);
-        }
-        return buf.toString();
+    @Override
+    public boolean isDirectBufferPooled() {
+        return directArenas != null;
     }
+
+//    Too noisy at the moment.
+//
+//    public String toString() {
+//        StringBuilder buf = new StringBuilder();
+//        buf.append(heapArenas.length);
+//        buf.append(" heap arena(s):");
+//        buf.append(StringUtil.NEWLINE);
+//        for (PoolArena<byte[]> a: heapArenas) {
+//            buf.append(a);
+//        }
+//        buf.append(directArenas.length);
+//        buf.append(" direct arena(s):");
+//        buf.append(StringUtil.NEWLINE);
+//        for (PoolArena<ByteBuffer> a: directArenas) {
+//            buf.append(a);
+//        }
+//        return buf.toString();
+//    }
 }

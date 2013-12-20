@@ -20,7 +20,6 @@ import io.netty.util.DefaultAttributeMap;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.EmptyArrays;
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.ThreadLocalRandom;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
@@ -30,7 +29,6 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.NotYetConnectedException;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
  * A skeletal {@link Channel} implementation.
@@ -50,7 +48,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     private MessageSizeEstimator.Handle estimatorHandle;
 
     private final Channel parent;
-    private final long hashCode = ThreadLocalRandom.current().nextLong();
+    private final ChannelId id = DefaultChannelId.newInstance();
     private final Unsafe unsafe;
     private final DefaultChannelPipeline pipeline;
     private final ChannelFuture succeededFuture = new SucceededChannelFuture(this, null);
@@ -60,15 +58,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     private volatile SocketAddress localAddress;
     private volatile SocketAddress remoteAddress;
-    private volatile EventLoop eventLoop;
+    private final EventLoop eventLoop;
     private volatile boolean registered;
 
     /** Cache for the string representation of this channel */
     private boolean strValActive;
     private String strVal;
-
-    private static final AtomicReferenceFieldUpdater<AbstractChannel, EventLoop> EVENT_LOOP_UPDATER =
-            AtomicReferenceFieldUpdater.newUpdater(AbstractChannel.class, EventLoop.class, "eventLoop");
 
     /**
      * Creates a new instance.
@@ -76,10 +71,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      * @param parent
      *        the parent of this channel. {@code null} if there's no parent.
      */
-    protected AbstractChannel(Channel parent) {
+    protected AbstractChannel(Channel parent, EventLoop eventLoop) {
         this.parent = parent;
+        this.eventLoop = validate(eventLoop);
         unsafe = newUnsafe();
         pipeline = new DefaultChannelPipeline(this);
+    }
+
+    @Override
+    public final ChannelId id() {
+        return id;
     }
 
     @Override
@@ -105,10 +106,6 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     @Override
     public EventLoop eventLoop() {
-        EventLoop eventLoop = this.eventLoop;
-        if (eventLoop == null) {
-            throw new IllegalStateException("channel not registered to an event loop");
-        }
         return eventLoop;
     }
 
@@ -278,7 +275,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     @Override
     public final int hashCode() {
-        return (int) hashCode;
+        return id.hashCode();
     }
 
     /**
@@ -296,21 +293,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             return 0;
         }
 
-        long ret = hashCode - o.hashCode();
-        if (ret > 0) {
-            return 1;
-        }
-        if (ret < 0) {
-            return -1;
-        }
-
-        ret = System.identityHashCode(this) - System.identityHashCode(o);
-        if (ret != 0) {
-            return (int) ret;
-        }
-
-        // Jackpot! - different objects with same hashes
-        throw new Error();
+        return id().compareTo(o.id());
     }
 
     /**
@@ -338,11 +321,30 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 srcAddr = remoteAddr;
                 dstAddr = localAddr;
             }
-            strVal = String.format("[id: 0x%08x, %s %s %s]", (int) hashCode, srcAddr, active? "=>" : ":>", dstAddr);
+
+            StringBuilder buf = new StringBuilder(96);
+            buf.append("[id: 0x");
+            buf.append(id.asShortText());
+            buf.append(", ");
+            buf.append(srcAddr);
+            buf.append(active? " => " : " :> ");
+            buf.append(dstAddr);
+            buf.append(']');
+            strVal = buf.toString();
         } else if (localAddr != null) {
-            strVal = String.format("[id: 0x%08x, %s]", (int) hashCode, localAddr);
+            StringBuilder buf = new StringBuilder(64);
+            buf.append("[id: 0x");
+            buf.append(id.asShortText());
+            buf.append(", ");
+            buf.append(localAddr);
+            buf.append(']');
+            strVal = buf.toString();
         } else {
-            strVal = String.format("[id: 0x%08x]", (int) hashCode);
+            StringBuilder buf = new StringBuilder(16);
+            buf.append("[id: 0x");
+            buf.append(id.asShortText());
+            buf.append(']');
+            strVal = buf.toString();
         }
 
         strValActive = active;
@@ -370,6 +372,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         private boolean inFlush0;
 
         @Override
+        public final ChannelHandlerInvoker invoker() {
+            return eventLoop.asInvoker();
+        }
+
+        @Override
         public final ChannelOutboundBuffer outboundBuffer() {
             return outboundBuffer;
         }
@@ -385,21 +392,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         }
 
         @Override
-        public final void register(EventLoop eventLoop, final ChannelPromise promise) {
-            if (eventLoop == null) {
-                throw new NullPointerException("eventLoop");
-            }
-
-            if (!isCompatible(eventLoop)) {
-                promise.setFailure(new IllegalStateException("incompatible event loop type: " +
-                        eventLoop.getClass().getName()));
-                return;
-            }
-
-            if (!AbstractChannel.EVENT_LOOP_UPDATER.compareAndSet(AbstractChannel.this, null, eventLoop)) {
-                return;
-            }
-
+        public final void register(final ChannelPromise promise) {
             if (eventLoop.inEventLoop()) {
                 register0(promise);
             } else {
@@ -470,8 +463,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             try {
                 doBind(localAddress);
             } catch (Throwable t) {
-                closeIfClosed();
                 promise.setFailure(t);
+                closeIfClosed();
                 return;
             }
             if (!wasActive && isActive()) {
@@ -491,8 +484,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             try {
                 doDisconnect();
             } catch (Throwable t) {
-                closeIfClosed();
                 promise.setFailure(t);
+                closeIfClosed();
                 return;
             }
             if (wasActive && !isActive()) {
@@ -503,8 +496,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     }
                 });
             }
-            closeIfClosed(); // doDisconnect() might have closed the channel
             promise.setSuccess();
+            closeIfClosed(); // doDisconnect() might have closed the channel
         }
 
         @Override
@@ -659,9 +652,6 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 doWrite(outboundBuffer);
             } catch (Throwable t) {
                 outboundBuffer.failFlushed(t);
-                if (t instanceof IOException) {
-                    close(voidPromise());
-                }
             } finally {
                 inFlush0 = false;
             }
@@ -704,6 +694,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         }
     }
 
+    private EventLoop validate(EventLoop eventLoop) {
+        if (eventLoop == null) {
+            throw new IllegalStateException("null event loop");
+        }
+        if (!isCompatible(eventLoop)) {
+            throw new IllegalStateException("incompatible event loop type: " + eventLoop.getClass().getName());
+        }
+        return eventLoop;
+    }
+
     /**
      * Return {@code true} if the given {@link EventLoop} is compatible with this instance.
      */
@@ -720,7 +720,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     protected abstract SocketAddress remoteAddress0();
 
     /**
-     * Is called after the {@link Channel} is registered with its {@link EventLoop} as part of the register process.
+     * Is called after the {@link Channel} is registered with its {@link EventLoop} as part of the register
+     * process.
      *
      * Sub-classes may override this method
      */

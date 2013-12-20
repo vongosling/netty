@@ -16,9 +16,12 @@
 package io.netty.testsuite.transport.socket;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.ChannelOption;
 import io.netty.testsuite.transport.socket.SocketTestPermutation.Factory;
 import io.netty.testsuite.util.TestUtils;
 import io.netty.util.NetUtil;
+import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import org.junit.Rule;
@@ -32,6 +35,7 @@ import java.util.List;
 public abstract class AbstractClientSocketTest {
 
     private static final List<Factory<Bootstrap>> COMBO = SocketTestPermutation.clientSocket();
+    private static final List<ByteBufAllocator> ALLOCATORS = SocketTestPermutation.allocator();
 
     @Rule
     public final TestName testName = new TestName();
@@ -42,20 +46,23 @@ public abstract class AbstractClientSocketTest {
     protected volatile InetSocketAddress addr;
 
     protected void run() throws Throwable {
-        int i = 0;
-        for (Factory<Bootstrap> e: COMBO) {
-            cb = e.newInstance();
-            addr = new InetSocketAddress(NetUtil.LOCALHOST, TestUtils.getFreePort());
-            cb.remoteAddress(addr);
-
-            logger.info(String.format(
-                    "Running: %s %d of %d", testName.getMethodName(), ++ i, COMBO.size()));
-            try {
-                Method m = getClass().getDeclaredMethod(
-                        testName.getMethodName(), Bootstrap.class);
-                m.invoke(this, cb);
-            } catch (InvocationTargetException ex) {
-                throw ex.getCause();
+        for (ByteBufAllocator allocator: ALLOCATORS) {
+            int i = 0;
+            for (Factory<Bootstrap> e: COMBO) {
+                cb = e.newInstance();
+                addr = new InetSocketAddress(NetUtil.LOCALHOST, TestUtils.getFreePort());
+                cb.remoteAddress(addr);
+                cb.option(ChannelOption.ALLOCATOR, allocator);
+                logger.info(String.format(
+                        "Running: %s %d of %d with %s",
+                        testName.getMethodName(), ++ i, COMBO.size(), StringUtil.simpleClassName(allocator)));
+                try {
+                    Method m = getClass().getDeclaredMethod(
+                            testName.getMethodName(), Bootstrap.class);
+                    m.invoke(this, cb);
+                } catch (InvocationTargetException ex) {
+                    throw ex.getCause();
+                }
             }
         }
     }

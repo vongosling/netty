@@ -20,8 +20,8 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelConfig;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerAdapter;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelMetadata;
 import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPipeline;
@@ -44,47 +44,54 @@ import java.util.Queue;
  */
 public class EmbeddedChannel extends AbstractChannel {
 
+    private static final SocketAddress LOCAL_ADDRESS = new EmbeddedSocketAddress();
+    private static final SocketAddress REMOTE_ADDRESS = new EmbeddedSocketAddress();
+
+    private static final ChannelHandler[] EMPTY_HANDLERS = new ChannelHandler[0];
+    private enum State { OPEN, ACTIVE, CLOSED }
+
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(EmbeddedChannel.class);
 
     private static final ChannelMetadata METADATA = new ChannelMetadata(false);
 
-    private final EmbeddedEventLoop loop = new EmbeddedEventLoop();
+    private final EmbeddedEventLoop loop;
     private final ChannelConfig config = new DefaultChannelConfig(this);
-    private final SocketAddress localAddress = new EmbeddedSocketAddress();
-    private final SocketAddress remoteAddress = new EmbeddedSocketAddress();
     private final Queue<Object> inboundMessages = new ArrayDeque<Object>();
     private final Queue<Object> outboundMessages = new ArrayDeque<Object>();
     private Throwable lastException;
-    private int state; // 0 = OPEN, 1 = ACTIVE, 2 = CLOSED
+    private State state;
 
     /**
-     * Create a new instance
+     * Create a new instance with an empty pipeline.
+     */
+    public EmbeddedChannel() {
+        this(EMPTY_HANDLERS);
+    }
+
+    /**
+     * Create a new instance with the pipeline initialized with the specified handlers.
      *
      * @param handlers the @link ChannelHandler}s which will be add in the {@link ChannelPipeline}
      */
     public EmbeddedChannel(ChannelHandler... handlers) {
-        super(null);
+        super(null, new EmbeddedEventLoop());
+
+        loop = (EmbeddedEventLoop) eventLoop();
 
         if (handlers == null) {
             throw new NullPointerException("handlers");
         }
 
-        int nHandlers = 0;
         ChannelPipeline p = pipeline();
         for (ChannelHandler h: handlers) {
             if (h == null) {
                 break;
             }
-            nHandlers ++;
             p.addLast(h);
         }
 
-        if (nHandlers == 0) {
-            throw new IllegalArgumentException("handlers is empty.");
-        }
-
         p.addLast(new LastInboundHandler());
-        loop.register(this);
+        unsafe().register(newPromise());
     }
 
     @Override
@@ -99,12 +106,12 @@ public class EmbeddedChannel extends AbstractChannel {
 
     @Override
     public boolean isOpen() {
-        return state < 2;
+        return state != State.CLOSED;
     }
 
     @Override
     public boolean isActive() {
-        return state == 1;
+        return state == State.ACTIVE;
     }
 
     /**
@@ -140,15 +147,17 @@ public class EmbeddedChannel extends AbstractChannel {
     /**
      * Return received data from this {@link Channel}
      */
-    public Object readInbound() {
-        return inboundMessages.poll();
+    @SuppressWarnings("unchecked")
+    public <T> T readInbound() {
+        return (T) inboundMessages.poll();
     }
 
     /**
      * Read data froum the outbound. This may return {@code null} if nothing is readable.
      */
-    public Object readOutbound() {
-        return outboundMessages.poll();
+    @SuppressWarnings("unchecked")
+    public <T> T readOutbound() {
+        return (T) outboundMessages.poll();
     }
 
     /**
@@ -228,7 +237,7 @@ public class EmbeddedChannel extends AbstractChannel {
     }
 
     /**
-     * Run all tasks that are pending in the {@link EventLoop} for this {@link Channel}
+     * Run all tasks that are pending in the {@link io.netty.channel.EventLoop} for this {@link Channel}
      */
     public void runPendingTasks() {
         try {
@@ -279,17 +288,17 @@ public class EmbeddedChannel extends AbstractChannel {
 
     @Override
     protected SocketAddress localAddress0() {
-        return isActive()? localAddress : null;
+        return isActive()? LOCAL_ADDRESS : null;
     }
 
     @Override
     protected SocketAddress remoteAddress0() {
-        return isActive()? remoteAddress : null;
+        return isActive()? REMOTE_ADDRESS : null;
     }
 
     @Override
     protected void doRegister() throws Exception {
-        state = 1;
+        state = State.ACTIVE;
     }
 
     @Override
@@ -304,7 +313,7 @@ public class EmbeddedChannel extends AbstractChannel {
 
     @Override
     protected void doClose() throws Exception {
-        state = 2;
+        state = State.CLOSED;
     }
 
     @Override
@@ -320,7 +329,7 @@ public class EmbeddedChannel extends AbstractChannel {
     @Override
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         for (;;) {
-            Object msg = in.current();
+            Object msg = in.current(false);
             if (msg == null) {
                 break;
             }
@@ -338,7 +347,7 @@ public class EmbeddedChannel extends AbstractChannel {
         }
     }
 
-    private final class LastInboundHandler extends ChannelInboundHandlerAdapter {
+    private final class LastInboundHandler extends ChannelHandlerAdapter {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
             inboundMessages.add(msg);

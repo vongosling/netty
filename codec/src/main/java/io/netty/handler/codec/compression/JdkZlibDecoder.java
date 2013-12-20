@@ -18,7 +18,6 @@ package io.netty.handler.codec.compression;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 
-import java.nio.ByteOrder;
 import java.util.List;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
@@ -114,7 +113,13 @@ public class JdkZlibDecoder extends ZlibDecoder {
 
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-        if (!in.isReadable() && finished) {
+        if (finished) {
+            // Skip data received after finished.
+            in.skipBytes(in.readableBytes());
+            return;
+        }
+
+        if (!in.isReadable()) {
             return;
         }
 
@@ -147,13 +152,20 @@ public class JdkZlibDecoder extends ZlibDecoder {
         ByteBuf decompressed = ctx.alloc().heapBuffer(maxOutputLength);
         try {
             boolean readFooter = false;
+            byte[] outArray = decompressed.array();
             while (!inflater.needsInput()) {
-                byte[] outArray = decompressed.array();
                 int outIndex = decompressed.arrayOffset() + decompressed.writerIndex();
                 int length = outArray.length - outIndex;
 
-                int outputLength =  inflater.inflate(outArray, outIndex, length);
+                if (length == 0) {
+                    // completely filled the buffer allocate a new one and start to fill it
+                    out.add(decompressed);
+                    decompressed = ctx.alloc().heapBuffer(maxOutputLength);
+                    outArray = decompressed.array();
+                    continue;
+                }
 
+                int outputLength = inflater.inflate(outArray, outIndex, length);
                 if (outputLength > 0) {
                     decompressed.writerIndex(decompressed.writerIndex() + outputLength);
                     if (crc != null) {
@@ -323,12 +335,12 @@ public class JdkZlibDecoder extends ZlibDecoder {
         // read ISIZE and verify
         int dataLength = 0;
         for (int i = 0; i < 4; ++i) {
-            dataLength |= buf.readUnsignedByte() << (i * 8);
+            dataLength |= buf.readUnsignedByte() << i * 8;
         }
         int readLength = inflater.getTotalOut();
         if (dataLength != readLength) {
             throw new CompressionException(
-                    "Number of bytes missmatch. Expected: " + dataLength + ", Got: " + readLength);
+                    "Number of bytes mismatch. Expected: " + dataLength + ", Got: " + readLength);
         }
         return true;
     }
@@ -336,7 +348,7 @@ public class JdkZlibDecoder extends ZlibDecoder {
     private void verifyCrc(ByteBuf in) {
         long crcValue = 0;
         for (int i = 0; i < 4; ++i) {
-            crcValue |= (long) in.readUnsignedByte() << (i * 8);
+            crcValue |= (long) in.readUnsignedByte() << i * 8;
         }
         long readCrc = crc.getValue();
         if (crcValue != readCrc) {

@@ -17,7 +17,6 @@
 package io.netty.bootstrap;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
@@ -25,6 +24,8 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.EventLoopGroup;
 import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.EventExecutorGroup;
+import io.netty.util.internal.StringUtil;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -42,7 +43,6 @@ import java.util.Map;
 public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C extends Channel> implements Cloneable {
 
     private volatile EventLoopGroup group;
-    private volatile ChannelFactory<? extends C> channelFactory;
     private volatile SocketAddress localAddress;
     private final Map<ChannelOption<?>, Object> options = new LinkedHashMap<ChannelOption<?>, Object>();
     private final Map<AttributeKey<?>, Object> attrs = new LinkedHashMap<AttributeKey<?>, Object>();
@@ -54,7 +54,6 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
     AbstractBootstrap(AbstractBootstrap<B, C> bootstrap) {
         group = bootstrap.group;
-        channelFactory = bootstrap.channelFactory;
         handler = bootstrap.handler;
         localAddress = bootstrap.localAddress;
         synchronized (bootstrap.options) {
@@ -66,8 +65,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     /**
-     * The {@link EventLoopGroup} which is used to handle all the events for the to-be-creates
-     * {@link Channel}
+     * The {@link EventLoopGroup} which is used to handle all the events for the to-be-created {@link Channel}
      */
     @SuppressWarnings("unchecked")
     public B group(EventLoopGroup group) {
@@ -78,38 +76,6 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             throw new IllegalStateException("group set already");
         }
         this.group = group;
-        return (B) this;
-    }
-
-    /**
-     * The {@link Class} which is used to create {@link Channel} instances from.
-     * You either use this or {@link #channelFactory(ChannelFactory)} if your
-     * {@link Channel} implementation has no no-args constructor.
-     */
-    public B channel(Class<? extends C> channelClass) {
-        if (channelClass == null) {
-            throw new NullPointerException("channelClass");
-        }
-        return channelFactory(new BootstrapChannelFactory<C>(channelClass));
-    }
-
-    /**
-     * {@link ChannelFactory} which is used to create {@link Channel} instances from
-     * when calling {@link #bind()}. This method is usually only used if {@link #channel(Class)}
-     * is not working for you because of some more complex needs. If your {@link Channel} implementation
-     * has a no-args constructor, its highly recommend to just use {@link #channel(Class)} for
-     * simplify your code.
-     */
-    @SuppressWarnings("unchecked")
-    public B channelFactory(ChannelFactory<? extends C> channelFactory) {
-        if (channelFactory == null) {
-            throw new NullPointerException("channelFactory");
-        }
-        if (this.channelFactory != null) {
-            throw new IllegalStateException("channelFactory set already");
-        }
-
-        this.channelFactory = channelFactory;
         return (B) this;
     }
 
@@ -197,20 +163,25 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         if (group == null) {
             throw new IllegalStateException("group not set");
         }
-        if (channelFactory == null) {
-            throw new IllegalStateException("factory not set");
-        }
         return (B) this;
     }
 
     /**
      * Returns a deep clone of this bootstrap which has the identical configuration.  This method is useful when making
      * multiple {@link Channel}s with similar settings.  Please note that this method does not clone the
-     * {@link EventLoopGroup} deeply but shallowly, making the group a shared resource.
+     * {@link EventExecutorGroup} deeply but shallowly, making the group a shared resource.
      */
     @Override
     @SuppressWarnings("CloneDoesntDeclareCloneNotSupportedException")
     public abstract B clone();
+
+    /**
+     * Create a new {@link Channel} and register it with an {@link EventExecutorGroup}.
+     */
+    public ChannelFuture register() {
+        validate();
+        return initAndRegister();
+    }
 
     /**
      * Create a new {@link Channel} and bind it.
@@ -274,8 +245,10 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         return promise;
     }
 
+    abstract Channel createChannel();
+
     final ChannelFuture initAndRegister() {
-        final Channel channel = channelFactory().newChannel();
+        Channel channel = createChannel();
         try {
             init(channel);
         } catch (Throwable t) {
@@ -284,7 +257,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         }
 
         ChannelPromise regPromise = channel.newPromise();
-        group().register(channel, regPromise);
+        channel.unsafe().register(regPromise);
         if (regPromise.cause() != null) {
             if (channel.isRegistered()) {
                 channel.close();
@@ -342,10 +315,6 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         return localAddress;
     }
 
-    final ChannelFactory<? extends C> channelFactory() {
-        return channelFactory;
-    }
-
     final ChannelHandler handler() {
         return handler;
     }
@@ -368,16 +337,11 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     @Override
     public String toString() {
         StringBuilder buf = new StringBuilder();
-        buf.append(getClass().getSimpleName());
+        buf.append(StringUtil.simpleClassName(this));
         buf.append('(');
         if (group != null) {
             buf.append("group: ");
-            buf.append(group.getClass().getSimpleName());
-            buf.append(", ");
-        }
-        if (channelFactory != null) {
-            buf.append("channelFactory: ");
-            buf.append(channelFactory);
+            buf.append(StringUtil.simpleClassName(group));
             buf.append(", ");
         }
         if (localAddress != null) {
@@ -411,27 +375,5 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             buf.setLength(buf.length() - 1);
         }
         return buf.toString();
-    }
-
-    private static final class BootstrapChannelFactory<T extends Channel> implements ChannelFactory<T> {
-        private final Class<? extends T> clazz;
-
-        BootstrapChannelFactory(Class<? extends T> clazz) {
-            this.clazz = clazz;
-        }
-
-        @Override
-        public T newChannel() {
-            try {
-                return clazz.newInstance();
-            } catch (Throwable t) {
-                throw new ChannelException("Unable to create Channel from class " + clazz, t);
-            }
-        }
-
-        @Override
-        public String toString() {
-            return clazz.getSimpleName() + ".class";
-        }
     }
 }

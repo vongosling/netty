@@ -22,7 +22,7 @@ import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
 /**
- * A special {@link ChannelInboundHandler} which offers an easy way to initialize a {@link Channel} once it was
+ * A special {@link ChannelHandler} which offers an easy way to initialize a {@link Channel} once it was
  * registered to its {@link EventLoop}.
  *
  * Implementations are most often used in the context of {@link Bootstrap#handler(ChannelHandler)} ,
@@ -47,7 +47,7 @@ import io.netty.util.internal.logging.InternalLoggerFactory;
  * @param <C>   A sub-type of {@link Channel}
  */
 @Sharable
-public abstract class ChannelInitializer<C extends Channel> extends ChannelInboundHandlerAdapter {
+public abstract class ChannelInitializer<C extends Channel> extends ChannelHandlerAdapter {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(ChannelInitializer.class);
 
@@ -60,23 +60,21 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
      */
     protected abstract void initChannel(C ch) throws Exception;
 
-    @SuppressWarnings("unchecked")
     @Override
-    public final void channelRegistered(ChannelHandlerContext ctx)
-            throws Exception {
-        boolean removed = false;
+    @SuppressWarnings("unchecked")
+    public final void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+        ChannelPipeline pipeline = ctx.pipeline();
         boolean success = false;
         try {
             initChannel((C) ctx.channel());
-            ctx.pipeline().remove(this);
-            removed = true;
+            pipeline.remove(this);
             ctx.fireChannelRegistered();
             success = true;
         } catch (Throwable t) {
             logger.warn("Failed to initialize a channel. Closing: " + ctx.channel(), t);
         } finally {
-            if (!removed) {
-                ctx.pipeline().remove(this);
+            if (pipeline.context(this) != null) {
+                pipeline.remove(this);
             }
             if (!success) {
                 ctx.close();

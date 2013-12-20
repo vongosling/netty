@@ -32,6 +32,7 @@ public class MixedFileUpload implements FileUpload {
     private final long limitSize;
 
     private final long definedSize;
+    private long maxSize = DefaultHttpDataFactory.MAXSIZE;
 
     public MixedFileUpload(String name, String filename, String contentType,
             String contentTransferEncoding, Charset charset, long size,
@@ -48,16 +49,35 @@ public class MixedFileUpload implements FileUpload {
     }
 
     @Override
+    public long getMaxSize() {
+        return maxSize;
+    }
+
+    @Override
+    public void setMaxSize(long maxSize) {
+        this.maxSize = maxSize;
+        fileUpload.setMaxSize(maxSize);
+    }
+
+    @Override
+    public void checkSize(long newSize) throws IOException {
+        if (maxSize >= 0 && newSize > maxSize) {
+            throw new IOException("Size exceed allowed maximum capacity");
+        }
+    }
+
+    @Override
     public void addContent(ByteBuf buffer, boolean last)
             throws IOException {
         if (fileUpload instanceof MemoryFileUpload) {
+            checkSize(fileUpload.length() + buffer.readableBytes());
             if (fileUpload.length() + buffer.readableBytes() > limitSize) {
                 DiskFileUpload diskFileUpload = new DiskFileUpload(fileUpload
                         .getName(), fileUpload.getFilename(), fileUpload
                         .getContentType(), fileUpload
                         .getContentTransferEncoding(), fileUpload.getCharset(),
                         definedSize);
-
+                diskFileUpload.setMaxSize(maxSize);
                 ByteBuf data = fileUpload.getByteBuf();
                 if (data != null && data.isReadable()) {
                     diskFileUpload.addContent(data.retain(), false);
@@ -143,6 +163,7 @@ public class MixedFileUpload implements FileUpload {
 
     @Override
     public void setContent(ByteBuf buffer) throws IOException {
+        checkSize(buffer.readableBytes());
         if (buffer.readableBytes() > limitSize) {
             if (fileUpload instanceof MemoryFileUpload) {
                 FileUpload memoryUpload = fileUpload;
@@ -152,6 +173,7 @@ public class MixedFileUpload implements FileUpload {
                         .getContentType(), memoryUpload
                         .getContentTransferEncoding(), memoryUpload.getCharset(),
                         definedSize);
+                fileUpload.setMaxSize(maxSize);
 
                 // release old upload
                 memoryUpload.release();
@@ -162,6 +184,7 @@ public class MixedFileUpload implements FileUpload {
 
     @Override
     public void setContent(File file) throws IOException {
+        checkSize(file.length());
         if (file.length() > limitSize) {
             if (fileUpload instanceof MemoryFileUpload) {
                 FileUpload memoryUpload = fileUpload;
@@ -172,6 +195,7 @@ public class MixedFileUpload implements FileUpload {
                         .getContentType(), memoryUpload
                         .getContentTransferEncoding(), memoryUpload.getCharset(),
                         definedSize);
+                fileUpload.setMaxSize(maxSize);
 
                 // release old upload
                 memoryUpload.release();
@@ -191,6 +215,7 @@ public class MixedFileUpload implements FileUpload {
                     .getContentType(), fileUpload
                     .getContentTransferEncoding(), fileUpload.getCharset(),
                     definedSize);
+            fileUpload.setMaxSize(maxSize);
 
             // release old upload
             memoryUpload.release();
@@ -221,6 +246,16 @@ public class MixedFileUpload implements FileUpload {
     @Override
     public String getName() {
         return fileUpload.getName();
+    }
+
+    @Override
+    public int hashCode() {
+        return fileUpload.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return fileUpload.equals(obj);
     }
 
     @Override

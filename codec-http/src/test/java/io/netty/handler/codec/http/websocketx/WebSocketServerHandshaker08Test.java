@@ -26,6 +26,7 @@ import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
+import io.netty.util.ReferenceCountUtil;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -39,9 +40,10 @@ public class WebSocketServerHandshaker08Test {
         EmbeddedChannel ch = new EmbeddedChannel(
                 new HttpObjectAggregator(42), new HttpRequestDecoder(), new HttpResponseEncoder());
 
-        FullHttpRequest req = new DefaultFullHttpRequest(HTTP_1_1, HttpMethod.GET, "/chat");
+        FullHttpRequest req = ReferenceCountUtil.releaseLater(
+                new DefaultFullHttpRequest(HTTP_1_1, HttpMethod.GET, "/chat"));
         req.headers().set(Names.HOST, "server.example.com");
-        req.headers().set(Names.UPGRADE, WEBSOCKET.toLowerCase());
+        req.headers().set(Names.UPGRADE, WEBSOCKET.toString().toLowerCase());
         req.headers().set(Names.CONNECTION, "Upgrade");
         req.headers().set(Names.SEC_WEBSOCKET_KEY, "dGhlIHNhbXBsZSBub25jZQ==");
         req.headers().set(Names.SEC_WEBSOCKET_ORIGIN, "http://example.com");
@@ -51,14 +53,15 @@ public class WebSocketServerHandshaker08Test {
         new WebSocketServerHandshaker08(
                 "ws://example.com/chat", "chat", false, Integer.MAX_VALUE).handshake(ch, req);
 
-        ByteBuf resBuf = (ByteBuf) ch.readOutbound();
+        ByteBuf resBuf = ch.readOutbound();
 
         EmbeddedChannel ch2 = new EmbeddedChannel(new HttpResponseDecoder());
         ch2.writeInbound(resBuf);
-        HttpResponse res = (HttpResponse) ch2.readInbound();
+        HttpResponse res = ch2.readInbound();
 
         Assert.assertEquals(
                 "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", res.headers().get(Names.SEC_WEBSOCKET_ACCEPT));
         Assert.assertEquals("chat", res.headers().get(Names.SEC_WEBSOCKET_PROTOCOL));
+        ReferenceCountUtil.release(res);
     }
 }
